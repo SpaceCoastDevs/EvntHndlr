@@ -1,5 +1,5 @@
 {
-  "name": "event-downloader",
+  "name": "evnt-hndlr",
   "version": "1.0.0",
   "description": "Download and format Meetup events",
   "main": "dist/main.js",
