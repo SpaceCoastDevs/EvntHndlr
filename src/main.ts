@@ -7,27 +7,6 @@ const turndownService = new TurndownService({
 });
 
 /**
- * Extracts the first event URL from a Meetup group page
- */
-async function extractFirstEvent(groupUrl: string): Promise<string> {
-  try {
-    const response = await (await fetch(groupUrl)).text();
-    const $ = cheerio.load(response);
-
-    const firstEvent = $("#event-card-e-1");
-    if (firstEvent.length === 0) {
-      return "";
-    }
-
-    const href = firstEvent.attr("href");
-    return href || "";
-  } catch (error) {
-    console.error(`Error extracting first event from ${groupUrl}:`, error);
-    return "";
-  }
-}
-
-/**
  * Extracts all event URLs from a Meetup group page
  */
 async function extractAllEvents(groupUrl: string): Promise<{ href: string; meetupName: string; }[]> {
@@ -157,7 +136,7 @@ async function renderEvents(
     output += `${records.map(post => `[${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
 
   ${post.description || ''}
-`).join('\n')}`;
+\n---`).join('\n')}`;
 
   } catch (error) {
     console.error("Error rendering events:", error);
@@ -167,9 +146,73 @@ async function renderEvents(
 }
 
 /**
+ * Filters events to only include those happening in the specified month/year
+ */
+function filterEventsByMonth(events: EventData[], targetMonth?: string): EventData[] {
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1; // getMonth() returns 0-11
+  const currentYear = now.getFullYear();
+
+  let filterMonth: number;
+  let filterYear: number;
+
+  if (targetMonth) {
+    // Parse the target month (format: "YYYY-MM" or just "MM")
+    if (targetMonth.includes('-')) {
+      const [year, month] = targetMonth.split('-');
+      filterYear = parseInt(year);
+      filterMonth = parseInt(month);
+    } else {
+      filterYear = currentYear;
+      filterMonth = parseInt(targetMonth);
+    }
+  } else {
+    // Default to current month
+    filterMonth = currentMonth;
+    filterYear = currentYear;
+  }
+
+  return events.filter(event => {
+    if (!event.datetime) return false;
+
+    const eventDate = new Date(event.datetime);
+    const eventMonth = eventDate.getMonth() + 1;
+    const eventYear = eventDate.getFullYear();
+
+    return eventMonth === filterMonth && eventYear === filterYear;
+  });
+}
+
+/**
  * Main function
  */
 async function main(): Promise<void> {
+  // Parse command line arguments
+  const args = process.argv.slice(2);
+  const monthArg = args.find(arg => arg.startsWith('--month='))?.split('=')[1] ||
+    args.find(arg => arg.startsWith('-m='))?.split('=')[1];
+
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage: npm run dev [options]
+       npm run start [options]
+
+Options:
+  --month=YYYY-MM    Filter events for specific month/year (e.g., --month=2025-08)
+  --month=MM         Filter events for specific month in current year (e.g., --month=08)
+  -m=YYYY-MM         Short form of --month
+  -h, --help         Show this help message
+
+If no month is specified, events for the current month will be shown.
+
+Examples:
+  npm run dev --month=2025-08    # Events for August 2025
+  npm run dev --month=12         # Events for December of current year
+  npm run dev                    # Events for current month
+`);
+    return;
+  }
+
   const groupLinks = getMeetupGroupList();
   const eventData: EventData[] = [];
 
@@ -185,8 +228,14 @@ async function main(): Promise<void> {
     }
   }
 
+  // Filter events by month
+  const filteredEvents = filterEventsByMonth(eventData, monthArg);
+
+  const monthDisplay = monthArg || `current month (${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')})`;
+  console.error(`Filtered to ${filteredEvents.length} events for ${monthDisplay}`);
+
   // Sort events by datetime
-  const sortedEventData = eventData.sort((a, b) => {
+  const sortedEventData = filteredEvents.sort((a, b) => {
     if (!a.datetime || !b.datetime) return 0;
     return new Date(a.datetime).getTime() - new Date(b.datetime).getTime();
   });
@@ -204,7 +253,7 @@ if (require.main === module) {
 export {
   extractAllEvents,
   extractEventData,
-  extractFirstEvent,
+  filterEventsByMonth,
   getMeetupGroupList,
   main,
   renderEvents,
