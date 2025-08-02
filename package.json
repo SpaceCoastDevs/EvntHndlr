@@ -5,11 +5,15 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/main.js",
+    "start": "npm --silent run build && node dist/main.js",
     "dev": "ts-node src/main.ts",
     "clean": "rm -rf dist"
   },
-  "keywords": ["meetup", "events", "scraper"],
+  "keywords": [
+    "meetup",
+    "events",
+    "scraper"
+  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {

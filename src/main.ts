@@ -30,21 +30,27 @@ async function extractFirstEvent(groupUrl: string): Promise<string> {
 /**
  * Extracts all event URLs from a Meetup group page
  */
-async function extractAllEvents(groupUrl: string): Promise<string[]> {
+async function extractAllEvents(groupUrl: string): Promise<{ href: string; meetupName: string; }[]> {
   try {
     const response = await (await fetch(groupUrl)).text();
     const $ = cheerio.load(response);
 
+    // Extract meetup name from URL
+    const meetupName = $("#group-name-link").text();
+
     const allEvents = $('a[id^="event-card-e-"]');
-    const eventUrls: string[] = [];
+    const eventUrls: { href: string; meetupName: string; }[] = [];
+    const seenUrls = new Set<string>();
 
     allEvents.each((_:any, element:any) => {
       const href = $(element).attr("href");
-      if (href) {
-        eventUrls.push(href);
+      if (href && !seenUrls.has(href)) {
+        seenUrls.add(href);
+        eventUrls.push({ href, meetupName });
       }
     });
 
+    console.error(`Found ${eventUrls.length} unique events for ${groupUrl}`);
     return eventUrls;
   } catch (error) {
     console.error(`Error extracting events from ${groupUrl}:`, error);
@@ -55,14 +61,12 @@ async function extractAllEvents(groupUrl: string): Promise<string[]> {
 /**
  * Extracts event data from a Meetup event page
  */
-async function extractEventData(url: string): Promise<EventData | null> {
+async function extractEventData(url: string, groupUrl: string, meetupName: string): Promise<EventData | null> {
   try {
     const response = await (await fetch(url)).text();
     const $ = cheerio.load(response);
 
-    // Extract meetup name from URL
-    const urlParts = url.split("/");
-    const meetupName = urlParts[3] || "";
+    console.error(`Processing event: ${url} for group: ${meetupName}`);
 
     // Get title of the webpage
     let eventName = $("title").text();
@@ -99,10 +103,6 @@ async function extractEventData(url: string): Promise<EventData | null> {
 
     const eventDatetime = startDate;
 
-    // Get event group link
-    const eventGroupLink = $("#event-group-link");
-    const eventGroupLinkUrl = eventGroupLink.attr("href") || "";
-
     // Get description of the event
     const eventDescriptionElement = $(".break-words");
     let eventDescription: string | null = null;
@@ -114,14 +114,14 @@ async function extractEventData(url: string): Promise<EventData | null> {
       }
     }
 
-    console.log(meetupName, eventName);
+    console.error(meetupName, eventName);
 
     return {
       title: eventName,
       url: url,
       date: eventDate,
       time: eventTime,
-      group_url: eventGroupLinkUrl,
+      group_url: groupUrl,
       meetup_name: meetupName,
       description: eventDescription,
       datetime: eventDatetime,
@@ -154,7 +154,7 @@ async function renderEvents(
   let output = `# Space Coast Tech Meetups\n\n`
   try {
     // Generate markdown content using template literals
-    output += `${records.map(post => `- [${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
+    output += `${records.map(post => `[${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
 
   ${post.description || ''}
 `).join('\n')}`;
@@ -174,11 +174,11 @@ async function main(): Promise<void> {
   const eventData: EventData[] = [];
 
   for (const groupLink of groupLinks) {
-    console.log(`Processing group: ${groupLink}`);
+    console.error(`Processing group: ${groupLink}`);
     const allEventLinks = await extractAllEvents(groupLink);
 
     for (const eventLink of allEventLinks) {
-      const event = await extractEventData(eventLink);
+      const event = await extractEventData(eventLink.href, groupLink, eventLink.meetupName);
       if (event) {
         eventData.push(event);
       }
@@ -192,7 +192,8 @@ async function main(): Promise<void> {
   });
 
   const events = await renderEvents(sortedEventData);
-  console.log("Rendered events:\n", events);
+  console.error("Rendered events:\n");
+  console.log(events);
 }
 
 // Run the main function if this file is executed directly
