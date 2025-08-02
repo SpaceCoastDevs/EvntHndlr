@@ -1,0 +1,25 @@
+{
+  "name": "event-downloader",
+  "version": "1.0.0",
+  "description": "Download and format Meetup events",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": ["meetup", "events", "scraper"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/turndown": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "turndown": "^7.1.0"
+  }
+}

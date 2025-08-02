@@ -1,3 +1,0 @@
-beautifulsoup4
-jinja2
-google-generativeai
