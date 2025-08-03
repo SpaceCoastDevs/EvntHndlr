@@ -123,20 +123,56 @@ function getMeetupGroupList(): string[] {
     "https://www.meetup.com/startupspacecoast/",
   ];
 }
-
 /**
  * Renders the events using JavaScript template literals and writes to output file
  */
 async function renderEvents(
   records: EventData[],
 ): Promise<string> {
-  let output = `# Space Coast Tech Meetups\n\n`
+
+  const now = new Date();
+  const currentDay = (now.getDate()).toString().padStart(2, '0');
+  const currentMonth = (now.getMonth() + 1).toString().padStart(2, '0');
+  const currentMonthString = now.toLocaleString('default', { month: 'long' }).charAt(0).toUpperCase() + now.toLocaleString('default', { month: 'long' }).slice(1);
+  const currentYear = now.getFullYear();
+
+  let output = `---
+publishDate: ${currentYear}-${currentMonth}-${currentDay}T00:00:00Z
+title: Space Coast Tech Events for ${currentMonthString} ${currentYear}
+excerpt: List of tech events around the Space Coast for ${currentMonthString} ${currentYear}.
+category: Events
+tags:
+  - meetups
+  - events
+slug: space-coast-tech-events-${currentMonth}-${currentYear}
+image: ~/assets/images/space-coast-devs-events.png
+---
+
+import CallToAction from '~/components/widgets/CallToAction.astro';
+`
+
   try {
     // Generate markdown content using template literals
-    output += `${records.map(post => `[${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
-
+    output += `${records.map(post => `
+<CallToAction
+  actions={[
+    {
+      variant: "primary",
+      text: "Join us!",
+      href: "${post.url}",
+      target: "_blank",
+      icon: "tabler:brand-meetup",
+    }
+  ]}
+>
+  <Fragment slot="title">
+    [${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
+  </Fragment>
+  <Fragment slot="subtitle">
   ${post.description || ''}
-\n---`).join('\n')}`;
+  </Fragment>
+</CallToAction>`).join('\n')}`;
+
 
   } catch (error) {
     console.error("Error rendering events:", error);
@@ -254,6 +290,7 @@ export {
   extractAllEvents,
   extractEventData,
   filterEventsByMonth,
+  formatEventDateTime,
   getMeetupGroupList,
   main,
   renderEvents,
