@@ -146,7 +146,7 @@ category: Events
 tags:
   - meetups
   - events
-slug: space-coast-tech-events-${currentMonth}-${currentYear}
+slug: space-coast-tech-events-${currentMonthString.toLowerCase()}-${currentYear}
 image: ~/assets/images/space-coast-devs-events.png
 ---
 
