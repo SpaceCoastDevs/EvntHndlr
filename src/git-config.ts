@@ -1,11 +1,5 @@
 import { GitConfig } from './git-handler';
-
-// Load environment variables from .env file
-try {
-  require('dotenv').config();
-} catch (error) {
-  // dotenv not available, environment variables should be set manually
-}
+import 'dotenv/config'; // Automatically load environment variables from .env file
 
 /**
  * Configuration for Git operations
