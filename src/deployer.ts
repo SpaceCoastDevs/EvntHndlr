@@ -18,6 +18,19 @@ export interface DeploymentOptions {
  */
 function generatePostFilename(month?: string): string {
   const now = new Date();
+  // Get current date/time in Eastern timezone using proper offset calculation
+  const easternFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const easternDateParts = easternFormatter.formatToParts(now);
+  const easternYear = parseInt(easternDateParts.find(p => p.type === 'year')?.value || '0');
+  const easternMonth = parseInt(easternDateParts.find(p => p.type === 'month')?.value || '0') - 1; // Month is 0-indexed
+  const easternDay = parseInt(easternDateParts.find(p => p.type === 'day')?.value || '0');
+  const easternTime = new Date(easternYear, easternMonth, easternDay);
+
   let targetDate: Date;
   
   if (month) {
@@ -27,19 +40,19 @@ function generatePostFilename(month?: string): string {
       targetDate = new Date(parseInt(year), parseInt(monthNum) - 1, 1);
     } else {
       // Format: MM (current year)
-      targetDate = new Date(now.getFullYear(), parseInt(month) - 1, 1);
+      targetDate = new Date(easternTime.getFullYear(), parseInt(month) - 1, 1);
     }
   } else {
     // Current month
-    targetDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    targetDate = new Date(easternTime.getFullYear(), easternTime.getMonth(), 1);
   }
   
   const year = targetDate.getFullYear();
   const monthNum = String(targetDate.getMonth() + 1).padStart(2, '0');
-  const monthName = targetDate.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+  const monthName = targetDate.toLocaleString('en-US', { month: 'long', timeZone: 'America/New_York' }).toLowerCase();
   
-  // Use current date for the date prefix
-  const datePrefix = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  // Use current date for the date prefix (Eastern time)
+  const datePrefix = `${easternYear}-${String(easternMonth + 1).padStart(2, '0')}-${String(easternDay).padStart(2, '0')}`;
   
   return `src/content/post/${datePrefix}-space-coast-tech-events-${monthName}-${year}.mdx`;
 }
@@ -84,7 +97,17 @@ export class EventsDeployer {
     // Filter events by month
     const filteredEvents = filterEventsByMonth(eventData, month);
     
-    const monthDisplay = month || `current month (${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')})`;
+    // Use Eastern time for consistent month display
+    const now = new Date();
+    const easternFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit'
+    });
+    const easternDateParts = easternFormatter.formatToParts(now);
+    const easternYear = easternDateParts.find(p => p.type === 'year')?.value;
+    const easternMonth = easternDateParts.find(p => p.type === 'month')?.value;
+    const monthDisplay = month || `current month (${easternYear}-${easternMonth})`;
     console.log(`Filtered to ${filteredEvents.length} events for ${monthDisplay}`);
 
     // Sort events by datetime
@@ -134,8 +157,17 @@ export class EventsDeployer {
         return;
       }
 
-      // Generate branch name based on the month being processed
-      const monthSuffix = month || new Date().toISOString().slice(0, 7);
+      // Generate branch name based on the month being processed (using Eastern time)
+      const now = new Date();
+      const easternFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit'
+      });
+      const easternDateParts = easternFormatter.formatToParts(now);
+      const easternYear = easternDateParts.find(p => p.type === 'year')?.value;
+      const easternMonth = easternDateParts.find(p => p.type === 'month')?.value;
+      const monthSuffix = month || `${easternYear}-${easternMonth}`;
       
       const deploymentOptions = {
         branchName: `${branchPrefix}-${monthSuffix}`,
@@ -166,7 +198,17 @@ export class EventsDeployer {
    * Generates a detailed PR body with event information
    */
   private generatePRBody(events: EventData[], month?: string): string {
-    const monthDisplay = month || new Date().toISOString().slice(0, 7);
+    // Use Eastern time for consistent month display
+    const now = new Date();
+    const easternFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit'
+    });
+    const easternDateParts = easternFormatter.formatToParts(now);
+    const easternYear = easternDateParts.find(p => p.type === 'year')?.value;
+    const easternMonth = easternDateParts.find(p => p.type === 'month')?.value;
+    const monthDisplay = month || `${easternYear}-${easternMonth}`;
     const eventsByGroup = new Map<string, number>();
     
     // Count events by group
@@ -187,7 +229,7 @@ This PR contains an automated update of the Space Coast tech events markdown fil
 ### 📊 Summary
 - **Total Events**: ${events.length}
 - **Period**: ${monthDisplay}
-- **Generated**: ${new Date().toISOString()}
+- **Generated**: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET
 
 ### 📅 Events by Group
 ${groupSummary}

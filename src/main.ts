@@ -131,10 +131,12 @@ async function renderEvents(
 ): Promise<string> {
 
   const now = new Date();
-  const currentDay = (now.getDate()).toString().padStart(2, '0');
-  const currentMonth = (now.getMonth() + 1).toString().padStart(2, '0');
-  const currentMonthString = now.toLocaleString('default', { month: 'long' }).charAt(0).toUpperCase() + now.toLocaleString('default', { month: 'long' }).slice(1);
-  const currentYear = now.getFullYear();
+  // Get current date/time in Eastern timezone
+  const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const currentDay = (easternTime.getDate()).toString().padStart(2, '0');
+  const currentMonth = (easternTime.getMonth() + 1).toString().padStart(2, '0');
+  const currentMonthString = easternTime.toLocaleString('en-US', { month: 'long', timeZone: 'America/New_York' }).charAt(0).toUpperCase() + easternTime.toLocaleString('en-US', { month: 'long', timeZone: 'America/New_York' }).slice(1);
+  const currentYear = easternTime.getFullYear();
 
   let output = `---
 publishDate: ${currentYear}-${currentMonth}-${currentDay}T00:00:00Z
@@ -153,7 +155,9 @@ import CallToAction from '~/components/widgets/CallToAction.astro';
 
   try {
     // Generate markdown content using template literals
-    output += `${records.map(post => `
+    output += `${records.map(post =>
+
+      post.group_url === "https://www.meetup.com/space-coast-devs/" ? `
 <CallToAction
   actions={[
     {
@@ -171,7 +175,16 @@ import CallToAction from '~/components/widgets/CallToAction.astro';
   <Fragment slot="subtitle">
   ${post.description || ''}
   </Fragment>
-</CallToAction>`).join('\n')}`;
+</CallToAction>` : `
+## [${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
+
+${post.description ? `${post.description}` : ''}
+
+- **Date:** ${post.date}
+- **Time:** ${post.time}
+- **Group:** [${post.meetup_name}](${post.group_url})
+`)
+      .join('\n')}`;
 
 
   } catch (error) {
@@ -186,8 +199,10 @@ import CallToAction from '~/components/widgets/CallToAction.astro';
  */
 function filterEventsByMonth(events: EventData[], targetMonth?: string): EventData[] {
   const now = new Date();
-  const currentMonth = now.getMonth() + 1; // getMonth() returns 0-11
-  const currentYear = now.getFullYear();
+  // Get current date/time in Eastern timezone
+  const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const currentMonth = easternTime.getMonth() + 1; // getMonth() returns 0-11
+  const currentYear = easternTime.getFullYear();
 
   let filterMonth: number;
   let filterYear: number;
@@ -290,7 +305,6 @@ export {
   extractAllEvents,
   extractEventData,
   filterEventsByMonth,
-  formatEventDateTime,
   getMeetupGroupList,
   main,
   renderEvents,
