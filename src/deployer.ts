@@ -2,6 +2,13 @@ import { main as extractEvents, renderEvents, filterEventsByMonth, getMeetupGrou
 import { GitHandler, createGitHandler } from './git-handler';
 import { createGitConfigFromEnv, DEFAULT_GIT_CONFIG } from './git-config';
 import { EventData } from './types';
+import { 
+  createGitOperationsHandler, 
+  GitOperationsHandler, 
+  HandlerMode, 
+  createValTownConfig,
+  ValTownConfig 
+} from './git-handler-factory';
 
 export interface DeploymentOptions {
   month?: string;
@@ -11,6 +18,7 @@ export interface DeploymentOptions {
   prTitle?: string;
   prBody?: string;
   dryRun?: boolean;
+  handlerMode?: HandlerMode; // New option to choose between 'local' or 'api-only'
 }
 
 /**
@@ -59,12 +67,36 @@ function generatePostFilename(month?: string): string {
 
 /**
  * Main integration class that handles event extraction and Git deployment
+ * Now supports both local git operations and GitHub API-only mode for Val.town
  */
 export class EventsDeployer {
-  private gitHandler: GitHandler;
+  private gitHandler: GitOperationsHandler;
+  private handlerMode: HandlerMode;
 
-  constructor(gitHandler?: GitHandler) {
-    this.gitHandler = gitHandler || createGitHandler(createGitConfigFromEnv());
+  constructor(gitHandler?: GitOperationsHandler, handlerMode?: HandlerMode) {
+    this.handlerMode = handlerMode || 'local'; // Default to local for backward compatibility
+    this.gitHandler = gitHandler || createGitOperationsHandler(
+      createGitConfigFromEnv(), 
+      this.handlerMode
+    );
+  }
+
+  /**
+   * Creates an EventsDeployer configured for Val.town deployment
+   */
+  static forValTown(config: ValTownConfig): EventsDeployer {
+    const gitConfig = createValTownConfig(config);
+    const handler = createGitOperationsHandler(gitConfig, 'api-only');
+    return new EventsDeployer(handler, 'api-only');
+  }
+
+  /**
+   * Creates an EventsDeployer with a specific handler mode
+   */
+  static withMode(handlerMode: HandlerMode, gitConfig?: any): EventsDeployer {
+    const config = gitConfig || createGitConfigFromEnv();
+    const handler = createGitOperationsHandler(config, handlerMode);
+    return new EventsDeployer(handler, handlerMode);
   }
 
   /**
@@ -126,15 +158,30 @@ export class EventsDeployer {
   }
 
   /**
-   * Deploys events to the Astro repository
+   * Deploys events to the repository using the configured handler mode
    */
   async deployEvents(options: DeploymentOptions = {}): Promise<void> {
     const {
       month,
       targetFile = generatePostFilename(month),
       branchPrefix = 'update-events',
-      dryRun = false
+      dryRun = false,
+      handlerMode
     } = options;
+
+    // Switch handler mode if requested (useful for testing different modes)
+    if (handlerMode && handlerMode !== this.handlerMode) {
+      console.log(`Switching from ${this.handlerMode} to ${handlerMode} mode`);
+      this.handlerMode = handlerMode;
+      try {
+        this.gitHandler = createGitOperationsHandler(createGitConfigFromEnv(), handlerMode);
+      } catch (error: any) {
+        console.error(`Failed to switch to ${handlerMode} mode:`, error.message);
+        throw error;
+      }
+    }
+
+    console.log(`Using ${this.handlerMode} mode for deployment`);
 
     try {
       // Extract events
@@ -154,6 +201,7 @@ export class EventsDeployer {
         console.log(markdownContent);
         console.log('='.repeat(50));
         console.log(`Target file: ${targetFile}`);
+        console.log(`Handler mode: ${this.handlerMode}`);
         return;
       }
 
@@ -176,7 +224,7 @@ export class EventsDeployer {
         prBody: options.prBody || this.generatePRBody(events, month)
       };
 
-      // Deploy to repository
+      // Deploy to repository using the configured handler
       const pr = await this.gitHandler.deployMarkdown(
         markdownContent,
         targetFile,
@@ -185,6 +233,7 @@ export class EventsDeployer {
 
       console.log(`✅ Successfully deployed events!`);
       console.log(`📋 Events processed: ${events.length}`);
+      console.log(`🔧 Handler mode: ${this.handlerMode}`);
       console.log(`🔗 Pull Request: ${pr.url}`);
       console.log(`📝 PR #${pr.number}: ${pr.title}`);
 
@@ -265,7 +314,10 @@ export async function deployFromCLI(): Promise<void> {
   const targetFileArg = args.find(arg => arg.startsWith('--file='))?.split('=')[1] ||
     args.find(arg => arg.startsWith('-f='))?.split('=')[1];
     
+  const handlerModeArg = args.find(arg => arg.startsWith('--mode='))?.split('=')[1] as HandlerMode;
+    
   const dryRun = args.includes('--dry-run') || args.includes('-d');
+  const apiOnly = args.includes('--api-only') || args.includes('-a');
 
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
@@ -279,10 +331,31 @@ Options:
   --file=path            Target file path in the repository (default: auto-generated based on month)
   -f=path                Short form of --file
   
+  --mode=MODE            Handler mode: 'local' or 'api-only' (default: auto-detect)
+  --api-only             Force API-only mode (same as --mode=api-only)
+  -a                     Short form of --api-only
+  
   --dry-run              Show what would be deployed without actually deploying
   -d                     Short form of --dry-run
   
   -h, --help             Show this help message
+
+Handler Modes:
+  local                  Use local git operations (requires git binary and file system)
+  api-only               Use GitHub API only (compatible with Val.town, serverless, browser)
+  auto-detect            Automatically choose based on environment (default)
+
+Val.town Usage:
+  For Val.town deployment, use --api-only mode or set up your code like this:
+  
+  import { EventsDeployer } from './deployer';
+  
+  const deployer = EventsDeployer.forValTown({
+    githubToken: 'your-token',
+    repoUrl: 'https://github.com/user/repo.git'
+  });
+  
+  await deployer.deployEvents({ month: '2025-08' });
 
 Default File Naming:
   Files are automatically named following the pattern:
@@ -292,27 +365,37 @@ Default File Naming:
   - src/content/post/2025-08-03-space-coast-tech-events-august-2025.mdx
   - src/content/post/2025-08-03-space-coast-tech-events-december-2025.mdx
 
-Environment Variables (required):
-  ASTRO_REPO_URL         URL of the Astro repository (e.g., https://github.com/user/repo.git)
+Environment Variables:
+  For local mode:
+  ASTRO_REPO_URL         URL of the repository (e.g., https://github.com/user/repo.git)
   LOCAL_REPO_PATH        Local path where repository will be cloned (e.g., /tmp/astro-site)
   GITHUB_TOKEN           GitHub personal access token with repo permissions
+  
+  For API-only mode:
+  ASTRO_REPO_URL         URL of the repository (required)
+  GITHUB_TOKEN           GitHub personal access token (required)
+  LOCAL_REPO_PATH        Not used in API-only mode
 
 Examples:
   npm run deploy --month=2025-08 --dry-run    # Preview August 2025 events
-  npm run deploy --month=12                   # Deploy December events
-  npm run deploy                              # Deploy current month events
-  npm run deploy --file=src/pages/events.md  # Deploy to custom file path
+  npm run deploy --month=12 --api-only        # Deploy December events using GitHub API only
+  npm run deploy --mode=local                 # Force local git mode
+  npm run deploy                              # Deploy current month (auto-detect mode)
 `);
     return;
   }
 
   try {
-    const deployer = new EventsDeployer();
+    const handlerMode = handlerModeArg || (apiOnly ? 'api-only' : undefined);
+    const deployer = handlerMode 
+      ? EventsDeployer.withMode(handlerMode)
+      : new EventsDeployer(); // Use default/auto-detect
     
     await deployer.deployEvents({
       month: monthArg,
       targetFile: targetFileArg,
-      dryRun
+      dryRun,
+      handlerMode
     });
     
   } catch (error: any) {
@@ -320,16 +403,29 @@ Examples:
       console.error(`
 ❌ Configuration Error: ${error.message}
 
-Please set the required environment variables:
-
+For local mode, please set:
 export ASTRO_REPO_URL="https://github.com/yourusername/your-astro-site.git"
 export LOCAL_REPO_PATH="/tmp/astro-site"
+export GITHUB_TOKEN="your_github_token"
+
+For API-only mode (Val.town, serverless), please set:
+export ASTRO_REPO_URL="https://github.com/yourusername/your-astro-site.git"
 export GITHUB_TOKEN="your_github_token"
 
 Or create a .env file with these values.
       `);
     } else {
       console.error('❌ Deployment failed:', error.message);
+      
+      // Provide specific help for common API-only mode issues
+      if (error.message.includes('git --version') || 
+          error.message.includes('ENOENT') ||
+          error.message.includes('spawn git')) {
+        console.error(`
+💡 Tip: If you're running in an environment without git (like Val.town), 
+try using the --api-only flag or --mode=api-only option.
+        `);
+      }
     }
     process.exit(1);
   }

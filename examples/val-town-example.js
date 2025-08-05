@@ -1,0 +1,178 @@
+"use strict";
+/**
+ * Example: Val.town implementation for EvntHndlr
+ * Copy this code to a Val.town endpoint for automated event updates
+ */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.default = manualEventUpdate;
+exports.weeklyEventUpdate = weeklyEventUpdate;
+exports.healthCheck = healthCheck;
+const evnt_hndlr_1 = require("https://esm.town/v/yourusername/evnt-hndlr");
+/**
+ * Manual trigger for event updates
+ * Call this endpoint to manually update events
+ */
+async function manualEventUpdate(req) {
+    try {
+        const { month, dryRun } = await req.json().catch(() => ({}));
+        const deployer = evnt_hndlr_1.EventsDeployer.forValTown({
+            githubToken: process.env.GITHUB_TOKEN,
+            repoUrl: "https://github.com/SpaceCoastDevs/spacecoastdevs.github.io.git",
+            targetBranch: "main"
+        });
+        if (dryRun) {
+            // Preview mode - don't actually deploy
+            await deployer.deployEvents({
+                month,
+                dryRun: true
+            });
+            return new Response(JSON.stringify({
+                success: true,
+                message: "Dry run completed - check logs for preview"
+            }), {
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+        // Deploy events
+        await deployer.deployEvents({
+            month,
+            commitMessage: `Update events for ${month || 'current month'}`,
+            prTitle: `Space Coast Events Update - ${month || new Date().toISOString().slice(0, 7)}`
+        });
+        return new Response(JSON.stringify({
+            success: true,
+            message: `Events updated successfully for ${month || 'current month'}`,
+            timestamp: new Date().toISOString()
+        }), {
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+    catch (error) {
+        console.error("Event update failed:", error);
+        return new Response(JSON.stringify({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+        }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+}
+/**
+ * Scheduled weekly update
+ * Set this to run on a schedule in Val.town
+ */
+async function weeklyEventUpdate() {
+    try {
+        const deployer = evnt_hndlr_1.EventsDeployer.forValTown({
+            githubToken: process.env.GITHUB_TOKEN,
+            repoUrl: "https://github.com/SpaceCoastDevs/spacecoastdevs.github.io.git"
+        });
+        // Get current month in Eastern time
+        const now = new Date();
+        const easternTime = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/New_York',
+            year: 'numeric',
+            month: '2-digit'
+        });
+        const currentMonth = easternTime.format(now).slice(0, 7); // YYYY-MM
+        await deployer.deployEvents({
+            month: currentMonth,
+            commitMessage: `Weekly event update - ${currentMonth}`,
+            prTitle: `Weekly Space Coast Events Update - ${currentMonth}`,
+            prBody: `
+## 🤖 Weekly Automated Update
+
+This is a scheduled weekly update of Space Coast tech events for ${currentMonth}.
+
+### 📅 Schedule
+- **Trigger**: Weekly on Sundays at 6 AM EST
+- **Source**: Space Coast Meetup groups
+- **Target**: ${currentMonth} events
+
+### 🔄 Next Steps
+1. Review the updated event listings
+2. Check for any formatting issues
+3. Merge if everything looks good
+
+*Generated by EvntHndlr on ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })} EST*
+      `.trim()
+        });
+        return {
+            success: true,
+            message: `Weekly update completed for ${currentMonth}`,
+            month: currentMonth,
+            timestamp: new Date().toISOString()
+        };
+    }
+    catch (error) {
+        console.error("Weekly update failed:", error);
+        return {
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+        };
+    }
+}
+/**
+ * Health check endpoint
+ * Verifies GitHub API access without making changes
+ */
+async function healthCheck() {
+    try {
+        const { testGitHubApiAccess } = await Promise.resolve().then(() => __importStar(require("https://esm.town/v/yourusername/evnt-hndlr")));
+        await testGitHubApiAccess(process.env.GITHUB_TOKEN, "https://github.com/SpaceCoastDevs/spacecoastdevs.github.io.git");
+        return new Response(JSON.stringify({
+            status: "healthy",
+            message: "GitHub API access verified",
+            timestamp: new Date().toISOString()
+        }), {
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+    catch (error) {
+        return new Response(JSON.stringify({
+            status: "unhealthy",
+            error: error.message,
+            timestamp: new Date().toISOString()
+        }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+}
+//# sourceMappingURL=val-town-example.js.map
