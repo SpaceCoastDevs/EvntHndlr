@@ -8,6 +8,7 @@
     "start": "npm --silent run build && node dist/main.js",
     "dev": "ts-node src/main.ts",
     "deploy": "ts-node src/deployer.ts",
+    "test-api": "ts-node src/test-api-integration.ts",
     "clean": "rm -rf dist"
   },
   "keywords": [
