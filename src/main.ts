@@ -11,13 +11,49 @@ const turndownService = new TurndownService({
  */
 async function extractAllEvents(groupUrl: string): Promise<{ href: string; meetupName: string; }[]> {
   try {
-    const response = await (await fetch(groupUrl)).text();
+    const response = await (await fetch(groupUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      }
+    })).text();
     const $ = cheerio.load(response);
 
     // Extract meetup name from URL
     const meetupName = $("#group-name-link").text();
 
-    const allEvents = $('a[id^="event-card-e-"]');
+    // Debug: Log the page title to verify we're getting content
+    const pageTitle = $("title").text();
+    console.error(`Page title for ${groupUrl}: ${pageTitle}`);
+
+    // Debug: Check if we're getting blocked or getting actual content
+    const bodyText = $("body").text().substring(0, 200);
+    console.error(`Body preview: ${bodyText}`);
+
+    // Debug: Try different selectors
+    const eventCards = $('[data-testid*="event"]').length;
+    const eventLinks = $('a[href*="/events/"]').length;
+    console.error(`Found ${eventCards} elements with event testid, ${eventLinks} links with /events/`);
+
+    // Try multiple selector strategies since Meetup.com structure changes
+    let allEvents = $('a[id^="event-card-e-"]');
+    console.error(`Found ${allEvents.length} event card elements with original selector`);
+
+    // If the original selector doesn't work, try alternative selectors
+    if (allEvents.length === 0) {
+      allEvents = $('a[href*="/events/"][data-testid*="event"]');
+      console.error(`Trying data-testid selector: found ${allEvents.length} elements`);
+    }
+
+    if (allEvents.length === 0) {
+      allEvents = $('a[href*="/events/"]').filter((_: any, el: any) => {
+        const href = $(el).attr('href');
+        return href ? !!href.match(/\/events\/\d+/) : false;
+      });
+      console.error(`Trying generic event link selector: found ${allEvents.length} elements`);
+    }
+
     const eventUrls: { href: string; meetupName: string; }[] = [];
     const seenUrls = new Set<string>();
 
