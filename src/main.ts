@@ -14,20 +14,51 @@ async function extractAllEvents(groupUrl: string): Promise<{ href: string; meetu
     const response = await (await fetch(groupUrl)).text();
     const $ = cheerio.load(response);
 
-    // Extract meetup name from URL
-    const meetupName = $("#group-name-link").text();
+    // Extract meetup name from the page
+    const meetupName = $("#group-name-link").text().trim() || $('h1').first().text().trim();
 
-    const allEvents = $('a[id^="event-card-e-"]');
     const eventUrls: { href: string; meetupName: string; }[] = [];
     const seenUrls = new Set<string>();
 
-    allEvents.each((_:any, element:any) => {
-      const href = $(element).attr("href");
-      if (href && !seenUrls.has(href)) {
-        seenUrls.add(href);
-        eventUrls.push({ href, meetupName });
+    // Try to extract events from JSON-LD structured data first
+    $('script[type="application/ld+json"]').each((_:any, element:any) => {
+      try {
+        const scriptContent = $(element).html();
+        if (scriptContent) {
+          const data = JSON.parse(scriptContent);
+          
+          // Check if it's an array of events
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              if (item['@type'] === 'Event' && item.url) {
+                const eventUrl = item.url;
+                if (!seenUrls.has(eventUrl)) {
+                  seenUrls.add(eventUrl);
+                  eventUrls.push({ href: eventUrl, meetupName });
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Continue if JSON parsing fails
       }
     });
+
+    // Fallback: try to find event links in the HTML using data attributes
+    if (eventUrls.length === 0) {
+      $('a[data-eventref], a[href*="/events/"]').each((_:any, element:any) => {
+        const href = $(element).attr("href");
+        if (href && href.includes('/events/') && !href.includes('/events/past') && !href.includes('/events/calendar')) {
+          // Make sure it's a full URL
+          const fullUrl = href.startsWith('http') ? href : `https://www.meetup.com${href}`;
+          if (!seenUrls.has(fullUrl) && /\/events\/\d+/.test(fullUrl)) {
+            seenUrls.add(fullUrl);
+            eventUrls.push({ href: fullUrl, meetupName });
+          }
+        }
+      });
+    }
 
     console.error(`Found ${eventUrls.length} unique events for ${groupUrl}`);
     return eventUrls;
