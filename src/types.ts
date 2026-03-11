@@ -7,6 +7,17 @@ export interface EventData {
   meetup_name: string;
   description: string | null;
   datetime: string | null;
+  isRecurring: boolean;
+  recurrenceDescription: string | null;
+}
+
+export interface RecurringEventGroup {
+  title: string;
+  group_url: string;
+  meetup_name: string;
+  description: string | null;
+  recurrenceDescription: string;
+  occurrences: { date: string; time: string; url: string; datetime: string | null }[];
 }
 
 export interface JsonLdEvent {

@@ -122,7 +122,9 @@ export class EventsDeployer {
    */
   async generateMarkdown(events: EventData[]): Promise<string> {
     console.log('Generating markdown content...');
-    return await renderEvents(events);
+    const { groupRecurringEvents } = await import('./main');
+    const { singles, groups } = groupRecurringEvents(events);
+    return await renderEvents(singles, groups);
   }
 
   /**
