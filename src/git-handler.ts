@@ -231,6 +231,25 @@ export class GitHandler {
   }
 
   /**
+   * Formats a file with prettier using the target repo's configuration
+   */
+  formatWithPrettier(filePath: string): void {
+    const fullPath = path.join(this.config.repoPath, filePath);
+    console.log(`Formatting with prettier: ${fullPath}`);
+
+    try {
+      execSync(`npx prettier --write "${fullPath}"`, {
+        cwd: this.config.repoPath,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      console.log('File formatted with prettier successfully');
+    } catch (error: any) {
+      console.warn(`Prettier formatting failed (continuing without formatting): ${error.message}`);
+    }
+  }
+
+  /**
    * Commits changes to the current branch
    */
   commitChanges(message: string, filePaths: string[]): boolean {
@@ -355,6 +374,9 @@ export class GitHandler {
 
     // Write markdown file
     this.writeMarkdownFile(targetFilePath, markdownContent);
+
+    // Format with prettier before committing
+    this.formatWithPrettier(targetFilePath);
 
     // Commit changes
     const hasChanges = this.commitChanges(commitMessage, [targetFilePath]);
