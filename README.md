@@ -29,7 +29,7 @@ A TypeScript application that automatically scrapes tech event data from Meetup.
    npm install
    ```
 
-3. **Set up environment variables** (required for Git deployment):
+3. **Set up environment variables** (only required for Git deployment):
    
    Create a `.env` file in the project root:
    ```bash
@@ -102,6 +102,30 @@ Extract events and output to stdout (without Git deployment):
 npm run dev
 ```
 
+Generate and write markdown locally (no GitHub token, no PR workflow):
+
+```bash
+npm run generate
+```
+
+Generate for a specific month:
+
+```bash
+npm run generate -- --month=2026-09
+```
+
+Write to a custom file:
+
+```bash
+npm run generate -- --file=src/content/post/space-coast-tech-events.mdx
+```
+
+Print markdown to stdout:
+
+```bash
+npm run generate -- --stdout
+```
+
 ### Build the Project
 
 Compile TypeScript to JavaScript:
@@ -123,6 +147,9 @@ Deploy events for the current month:
 ```bash
 npm run deploy
 ```
+
+Note: `npm run deploy` requires `ASTRO_REPO_URL`, `LOCAL_REPO_PATH`, and `GITHUB_TOKEN`.
+If you want to run without Git setup, use `npm run generate`.
 
 Deploy events for a specific month:
 
