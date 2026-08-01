@@ -367,6 +367,7 @@ function getMeetupGroupList(): string[] {
 async function renderEvents(
   records: EventData[],
   recurringGroups: RecurringEventGroup[],
+  targetMonth?: string,
 ): Promise<string> {
 
   const now = new Date();
@@ -377,15 +378,30 @@ async function renderEvents(
   const currentMonthString = easternTime.toLocaleString('en-US', { month: 'long', timeZone: 'America/New_York' }).charAt(0).toUpperCase() + easternTime.toLocaleString('en-US', { month: 'long', timeZone: 'America/New_York' }).slice(1);
   const currentYear = easternTime.getFullYear();
 
+  let postMonthString = currentMonthString;
+  let postYear = currentYear;
+
+  if (targetMonth) {
+    const [year, month] = targetMonth.includes('-')
+      ? targetMonth.split('-').map(Number)
+      : [currentYear, Number(targetMonth)];
+
+    if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
+      const targetDate = new Date(Date.UTC(year, month - 1, 1, 12));
+      postMonthString = targetDate.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+      postYear = year;
+    }
+  }
+
   let output = `---
 publishDate: ${currentYear}-${currentMonth}-${currentDay}T00:00:00Z
-title: Space Coast Tech Events for ${currentMonthString} ${currentYear}
-excerpt: List of tech events around the Space Coast for ${currentMonthString} ${currentYear}.
+title: Space Coast Tech Events for ${postMonthString} ${postYear}
+excerpt: List of tech events around the Space Coast for ${postMonthString} ${postYear}.
 category: Events
 tags:
   - meetups
   - events
-slug: space-coast-tech-events-${currentMonthString.toLowerCase()}-${currentYear}
+slug: space-coast-tech-events-${postMonthString.toLowerCase()}-${postYear}
 image: ~/assets/images/space-coast-devs-events.png
 ---
 
@@ -646,7 +662,7 @@ Examples:
   const { singles, groups } = groupRecurringEvents(sortedEventData);
   console.error(`Found ${singles.length} single events and ${groups.length} recurring event groups`);
 
-  const events = await renderEvents(singles, groups);
+  const events = await renderEvents(singles, groups, monthArg);
   console.error("Rendered events:\n");
   console.log(events);
 }
