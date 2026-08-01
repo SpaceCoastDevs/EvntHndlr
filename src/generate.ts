@@ -68,7 +68,7 @@ async function generateEventsMarkdown(month?: string): Promise<string> {
   });
 
   const { singles, groups } = groupRecurringEvents(sortedEventData);
-  return renderEvents(singles, groups);
+  return renderEvents(singles, groups, month);
 }
 
 export async function generateFromCLI(): Promise<void> {

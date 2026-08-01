@@ -120,11 +120,11 @@ export class EventsDeployer {
   /**
    * Generates the markdown content for events
    */
-  async generateMarkdown(events: EventData[]): Promise<string> {
+  async generateMarkdown(events: EventData[], month?: string): Promise<string> {
     console.log('Generating markdown content...');
     const { groupRecurringEvents } = await import('./main');
     const { singles, groups } = groupRecurringEvents(events);
-    return await renderEvents(singles, groups);
+    return await renderEvents(singles, groups, month);
   }
 
   /**
@@ -148,7 +148,7 @@ export class EventsDeployer {
       }
 
       // Generate markdown
-      const markdownContent = await this.generateMarkdown(events);
+      const markdownContent = await this.generateMarkdown(events, month);
 
       if (dryRun) {
         console.log('DRY RUN - Would deploy the following content:');
