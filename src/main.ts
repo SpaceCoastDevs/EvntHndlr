@@ -116,7 +116,10 @@ function getEventCost(offers: unknown): EventCost | null {
   const offer = Array.isArray(offers) ? offers[0] : offers;
   if (!offer || typeof offer !== "object") return null;
 
-  const { price, lowPrice, priceCurrency } = offer as Record<string, unknown>;
+  const { price, lowPrice, highPrice, priceCurrency } = offer as Record<
+    string,
+    unknown
+  >;
   const listedPrice = price ?? lowPrice;
   const amount =
     typeof listedPrice === "number"
@@ -126,9 +129,22 @@ function getEventCost(offers: unknown): EventCost | null {
         : NaN;
   if (!Number.isFinite(amount) || amount < 0) return null;
 
+  const maximumAmount =
+    typeof highPrice === "number"
+      ? highPrice
+      : typeof highPrice === "string"
+        ? Number(highPrice)
+        : NaN;
+
   return {
-    type: amount === 0 ? "free" : "paid",
-    ...(amount > 0 ? { amount } : {}),
+    type:
+      amount === 0 && (!Number.isFinite(maximumAmount) || maximumAmount === 0)
+        ? "free"
+        : "paid",
+    amount,
+    ...(Number.isFinite(maximumAmount) && maximumAmount > amount
+      ? { maximumAmount }
+      : {}),
     ...(typeof priceCurrency === "string" && priceCurrency.trim()
       ? { currency: priceCurrency.trim().toUpperCase() }
       : {}),

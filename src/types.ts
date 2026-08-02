@@ -1,6 +1,7 @@
 export interface EventCost {
   type: "free" | "paid";
   amount?: number;
+  maximumAmount?: number;
   currency?: string;
 }
 
