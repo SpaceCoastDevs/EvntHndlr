@@ -68,6 +68,17 @@ function isEventbriteSource(url: string): boolean {
   return /(^https?:\/\/)?(www\.)?eventbrite\.com\//i.test(url);
 }
 
+function getSourceImageUrl(image: unknown): string | null {
+  const value = Array.isArray(image) ? image[0] : image;
+  const url =
+    typeof value === 'string'
+      ? value
+      : value && typeof value === 'object' && ('url' in value || 'contentUrl' in value)
+        ? (value.url || value.contentUrl)
+        : null;
+  return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null;
+}
+
 function isLumaSource(url: string): boolean {
   return /(^https?:\/\/)?(www\.)?luma\.com\//i.test(url);
 }
@@ -452,6 +463,7 @@ async function extractEventbriteEventData(
 
     let eventName = $("title").text().replace(" | Eventbrite", "").trim();
     let eventDescription: string | null = null;
+    let imageUrl: string | null = null;
     let startDate: string | null = null;
     let organizerName = fallbackOrganizerName;
     let isBrevardCountyLocation = !requireBrevardCountyLocation;
@@ -477,6 +489,7 @@ async function extractEventbriteEventData(
             if (typeof entry.startDate === "string" && entry.startDate.trim()) {
               startDate = entry.startDate.trim();
             }
+            imageUrl = getSourceImageUrl(entry.image) || imageUrl;
             if (requireBrevardCountyLocation && isBrevardCountyEventbriteLocation(entry.location)) {
               isBrevardCountyLocation = true;
             }
@@ -529,6 +542,7 @@ async function extractEventbriteEventData(
       group_url: groupUrl,
       meetup_name: organizerName,
       description: eventDescription,
+      imageUrl,
       datetime: startDate,
       isRecurring: false,
       recurrenceDescription: null,
@@ -550,6 +564,7 @@ async function extractLumaEventData(
 
     let eventName = $("title").text().replace(" · Luma", "").trim() || fallbackName;
     let eventDescription: string | null = null;
+    let imageUrl: string | null = null;
     let startDate: string | null = null;
     let organizerName = fallbackName;
 
@@ -575,6 +590,7 @@ async function extractLumaEventData(
           if (typeof entry.startDate === "string" && entry.startDate.trim()) {
             startDate = entry.startDate.trim();
           }
+          imageUrl = getSourceImageUrl(entry.image) || imageUrl;
           if (entry.organizer) {
             if (Array.isArray(entry.organizer)) {
               const firstNamed = entry.organizer.find((organizer: any) => typeof organizer?.name === "string" && organizer.name.trim());
@@ -623,6 +639,7 @@ async function extractLumaEventData(
       group_url: groupUrl,
       meetup_name: organizerName,
       description: eventDescription,
+      imageUrl,
       datetime: startDate,
       isRecurring: false,
       recurrenceDescription: null,
@@ -662,6 +679,7 @@ async function extractEventData(
 
     // Extract startDate from JSON-LD script tags
     let startDate: string | null = null;
+    let imageUrl = getSourceImageUrl($('meta[property="og:image"]').attr('content'));
     $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
         const scriptContent = $(element).html();
@@ -672,11 +690,13 @@ async function extractEventData(
             for (const item of data) {
               if (typeof item === "object" && item.startDate) {
                 startDate = item.startDate;
+                imageUrl = imageUrl || getSourceImageUrl(item.image);
                 break;
               }
             }
           } else if (typeof data === "object" && data.startDate) {
             startDate = data.startDate;
+            imageUrl = imageUrl || getSourceImageUrl(data.image);
           }
         }
       } catch (e) {
@@ -767,6 +787,7 @@ async function extractEventData(
       group_url: groupUrl,
       meetup_name: meetupName,
       description: eventDescription,
+      imageUrl,
       datetime: eventDatetime,
       isRecurring,
       recurrenceDescription,

@@ -6,6 +6,7 @@ export interface EventData {
   group_url: string;
   meetup_name: string;
   description: string | null;
+  imageUrl?: string | null;
   datetime: string | null;
   isRecurring: boolean;
   recurrenceDescription: string | null;

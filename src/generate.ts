@@ -18,6 +18,7 @@ interface GeneratedEventRecord {
   organizer: { name: string; url: string };
   sourceUrl: string;
   description: string;
+  imageUrl?: string;
   tags: string[];
 }
 
@@ -55,13 +56,14 @@ const toEventRecord = (event: EventData): GeneratedEventRecord | null => {
   if (Number.isNaN(start.getTime())) return null;
 
   return {
-    slug: `${slugify(event.title)}-${getEasternDate(start)}`,
+    slug: slugify(event.title),
     title: event.title,
     start: event.datetime,
     attendanceMode: 'inPerson',
     organizer: { name: event.meetup_name, url: event.group_url },
     sourceUrl: event.url,
     description: event.description || '',
+    ...(event.imageUrl ? { imageUrl: event.imageUrl } : {}),
     tags: ['community'],
   };
 };
