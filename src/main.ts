@@ -1103,6 +1103,10 @@ function getMeetupGroupList(): string[] {
     "https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203",
     "https://www.eventbrite.com/o/protoworkstudio-76945735013",
     "https://www.eventbrite.com/o/network-launch-107498260021",
+    "https://www.eventbrite.com/o/2979832833",
+    "https://www.eventbrite.com/o/15072650125",
+    "https://www.eventbrite.com/o/7897920133",
+    "https://www.eventbrite.com/o/orlando-net-user-group-onetug-77569057943",
     "https://luma.com/genai-collective",
     "https://luma.com/calendar/cal-EO6JltBLpwXrrUO",
   ];
