@@ -808,10 +808,27 @@ function expandRecurringDates(
     }
   }
 
-  // Get the time component from the original event
+  const easternFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const getEasternPart = (date: Date, type: Intl.DateTimeFormatPartTypes): string =>
+    easternFormatter.formatToParts(date).find((part) => part.type === type)?.value || '';
+
+  // Read the original event's wall-clock time in the event timezone. Using
+  // Date#getHours() depends on the runner timezone (UTC in Actions) and
+  // shifts recurring occurrences when their Eastern offset is reapplied.
   const originalDate = new Date(event.datetime);
-  const hours = originalDate.getHours();
-  const minutes = originalDate.getMinutes();
+  const originalYear = Number(getEasternPart(originalDate, 'year'));
+  const originalMonth = Number(getEasternPart(originalDate, 'month'));
+  const originalDay = Number(getEasternPart(originalDate, 'day'));
+  const hours = Number(getEasternPart(originalDate, 'hour'));
+  const minutes = Number(getEasternPart(originalDate, 'minute'));
   const tzMatch = event.datetime.match(/([+-]\d{2}:\d{2})$/);
   const tzSuffix = tzMatch ? tzMatch[1] : '';
 
@@ -819,7 +836,7 @@ function expandRecurringDates(
 
   // Helper to build an occurrence EventData for a given day
   const buildOccurrence = (day: number, isFirst: boolean): EventData => {
-    const candidate = new Date(filterYear, filterMonth - 1, day);
+    const candidate = new Date(Date.UTC(filterYear, filterMonth - 1, day));
     const monthStr = String(filterMonth).padStart(2, '0');
     const dayStr = String(day).padStart(2, '0');
     const hourStr = String(hours).padStart(2, '0');
@@ -851,12 +868,12 @@ function expandRecurringDates(
     // Find the nth occurrence of targetDay in the month
     let count = 0;
     for (let day = 1; day <= monthEnd.getDate(); day++) {
-      const candidate = new Date(filterYear, filterMonth - 1, day);
-      if (candidate.getDay() === targetDay) {
+      const candidate = new Date(Date.UTC(filterYear, filterMonth - 1, day));
+      if (candidate.getUTCDay() === targetDay) {
         count++;
         if (count === nthWeek) {
           // Check date constraints
-          const originalStartOfDay = new Date(originalDate.getFullYear(), originalDate.getMonth(), originalDate.getDate()).getTime();
+          const originalStartOfDay = Date.UTC(originalYear, originalMonth - 1, originalDay);
           if (candidate.getTime() < originalStartOfDay) return [event];
           if (endDate && candidate > endDate) return [event];
           return [buildOccurrence(day, true)];
@@ -889,12 +906,12 @@ function expandRecurringDates(
   const occurrences: EventData[] = [];
 
   for (let day = 1; day <= monthEnd.getDate(); day++) {
-    const candidate = new Date(filterYear, filterMonth - 1, day);
-    if (candidate.getDay() !== targetDayOfWeek) continue;
+    const candidate = new Date(Date.UTC(filterYear, filterMonth - 1, day));
+    if (candidate.getUTCDay() !== targetDayOfWeek) continue;
 
     // Check if this date is before the original event start
     const candidateTime = candidate.getTime();
-    const originalStartOfDay = new Date(originalDate.getFullYear(), originalDate.getMonth(), originalDate.getDate()).getTime();
+    const originalStartOfDay = Date.UTC(originalYear, originalMonth - 1, originalDay);
     if (candidateTime < originalStartOfDay) continue;
 
     // Check the week interval - must be a multiple of weekInterval weeks from original
