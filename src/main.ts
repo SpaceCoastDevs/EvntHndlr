@@ -9,6 +9,7 @@ const turndownService = new TurndownService({
 interface SourceEventLink {
   href: string;
   meetupName: string;
+  requireBrevardCountyLocation?: boolean;
 }
 
 interface LumaGeoAddress {
@@ -26,6 +27,15 @@ interface LumaEventItem {
   timezone?: string;
   location_type?: string;
   geo_address_info?: LumaGeoAddress;
+}
+
+interface EventbriteLocation {
+  name?: string;
+  address?: {
+    addressLocality?: string;
+    addressRegion?: string;
+    streetAddress?: string;
+  };
 }
 
 const BREVARD_CITIES = new Set([
@@ -93,6 +103,30 @@ function isBrevardCountyLumaEvent(event: LumaEventItem): boolean {
   const fullAddress = `${geo.full_address || ""} ${geo.short_address || ""}`.toUpperCase();
   for (const brevardCity of BREVARD_CITIES) {
     if (fullAddress.includes(`${brevardCity}, FL`) || fullAddress.includes(` ${brevardCity} FL`)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isBrevardCountyEventbriteLocation(location: unknown): boolean {
+  if (!location || typeof location !== "object") return false;
+
+  const eventLocation = location as EventbriteLocation;
+  const address = eventLocation.address;
+  const city = (address?.addressLocality || "").trim().toUpperCase();
+  if (city && BREVARD_CITIES.has(city)) return true;
+
+  const locationText = [
+    eventLocation.name,
+    address?.streetAddress,
+    address?.addressLocality,
+    address?.addressRegion,
+  ].filter((value): value is string => typeof value === "string").join(" ").toUpperCase();
+
+  for (const brevardCity of BREVARD_CITIES) {
+    if (locationText.includes(`${brevardCity}, FL`) || locationText.includes(` ${brevardCity} FL`)) {
       return true;
     }
   }
@@ -174,7 +208,11 @@ async function extractEventbriteEvents(sourceUrl: string): Promise<SourceEventLi
       if (!/\/e\//.test(normalized)) return;
       if (seenUrls.has(normalized)) return;
       seenUrls.add(normalized);
-      foundEvents.push({ href: normalized, meetupName: organizerName });
+      foundEvents.push({
+        href: normalized,
+        meetupName: organizerName,
+        requireBrevardCountyLocation: sourceUrl.includes("network-launch-107498260021"),
+      });
     };
 
     // Eventbrite organizer pages embed upcomingEvents as JSON in the HTML payload.
@@ -406,6 +444,7 @@ async function extractEventbriteEventData(
   url: string,
   groupUrl: string,
   fallbackOrganizerName: string,
+  requireBrevardCountyLocation = false,
 ): Promise<EventData | null> {
   try {
     const html = await (await fetch(url)).text();
@@ -415,6 +454,7 @@ async function extractEventbriteEventData(
     let eventDescription: string | null = null;
     let startDate: string | null = null;
     let organizerName = fallbackOrganizerName;
+    let isBrevardCountyLocation = !requireBrevardCountyLocation;
 
     $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
@@ -437,6 +477,9 @@ async function extractEventbriteEventData(
             if (typeof entry.startDate === "string" && entry.startDate.trim()) {
               startDate = entry.startDate.trim();
             }
+            if (requireBrevardCountyLocation && isBrevardCountyEventbriteLocation(entry.location)) {
+              isBrevardCountyLocation = true;
+            }
             if (entry.organizer) {
               if (typeof entry.organizer === "string") {
                 organizerName = entry.organizer;
@@ -450,6 +493,11 @@ async function extractEventbriteEventData(
         // Continue if JSON parsing fails
       }
     });
+
+    if (!isBrevardCountyLocation) {
+      console.error(`Skipping Eventbrite event outside Brevard County: ${url}`);
+      return null;
+    }
 
     if (!eventDescription) {
       const metaDescription = $('meta[name="description"]').attr("content");
@@ -588,9 +636,14 @@ async function extractLumaEventData(
 /**
  * Extracts event data from a Meetup event page
  */
-async function extractEventData(url: string, groupUrl: string, meetupName: string): Promise<EventData | null> {
+async function extractEventData(
+  url: string,
+  groupUrl: string,
+  meetupName: string,
+  requireBrevardCountyLocation = false,
+): Promise<EventData | null> {
   if (isEventbriteSource(groupUrl) || isEventbriteSource(url)) {
-    return extractEventbriteEventData(url, groupUrl, meetupName);
+    return extractEventbriteEventData(url, groupUrl, meetupName, requireBrevardCountyLocation);
   }
 
   if (isLumaSource(groupUrl) || isLumaSource(url)) {
@@ -872,6 +925,7 @@ function getMeetupGroupList(): string[] {
     "https://www.meetup.com/startupspacecoast/",
     "https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203",
     "https://www.eventbrite.com/o/protoworkstudio-76945735013",
+    "https://www.eventbrite.com/o/network-launch-107498260021",
     "https://luma.com/genai-collective",
   ];
 }
@@ -1153,7 +1207,12 @@ Examples:
     const allEventLinks = await extractAllEvents(groupLink);
 
     for (const eventLink of allEventLinks) {
-      const event = await extractEventData(eventLink.href, groupLink, eventLink.meetupName);
+      const event = await extractEventData(
+        eventLink.href,
+        groupLink,
+        eventLink.meetupName,
+        eventLink.requireBrevardCountyLocation,
+      );
       if (event) {
         eventData.push(event);
       }

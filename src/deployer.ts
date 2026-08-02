@@ -250,6 +250,7 @@ ${groupSummary}
 - [Startup Space Coast](https://www.meetup.com/startupspacecoast/)
 - [ISC2 Florida SpaceCoast Chapter](https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203)
 - [ProtoWorkStudio](https://www.eventbrite.com/o/protoworkstudio-76945735013)
+- [Network Launch](https://www.eventbrite.com/o/network-launch-107498260021) (Brevard County events only)
 - [The AI Collective (Luma Calendar)](https://luma.com/genai-collective)
 
 *This PR was created automatically by the evnt-hndlr tool. Please review the content before merging.*

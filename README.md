@@ -5,6 +5,7 @@ A TypeScript application that automatically scrapes tech event data from Meetup.
 ## Features
 
 - 🔍 **Automated Event Scraping**: Extracts event information from configured event sources (Meetup + Eventbrite + Luma)
+- 📍 **Space Coast Location Filtering**: Keeps Network Launch Eventbrite listings to Brevard County venues
 - 📝 **Markdown Formatting**: Converts event details (title, date, time, description) into clean markdown
 - 🔄 **Git Integration**: Automatically creates branches, commits, and pull requests to deploy events
 - 📅 **Month Filtering**: Generate event lists for specific months or the current month
