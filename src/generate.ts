@@ -29,6 +29,15 @@ const slugify = (value: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
 
+const groupDirectoryOverrides: Record<string, string> = {
+  'spacecoastsec-space-coast-s-information-security-community': 'spacecoastsec',
+};
+
+const getGroupDirectory = (organizerName: string): string => {
+  const organizerSlug = slugify(organizerName);
+  return groupDirectoryOverrides[organizerSlug] || organizerSlug;
+};
+
 const getEasternDate = (date: Date): string => {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
@@ -62,7 +71,12 @@ async function writeEventRecords(events: EventData[], eventsDirectory: string): 
     .map(toEventRecord)
     .filter((record): record is GeneratedEventRecord => record !== null)
     .sort((a, b) => a.start.localeCompare(b.start));
-  const uniqueRecords = new Map(records.map((record) => [`${slugify(record.organizer.name)}/${record.slug}`, record]));
+  const uniqueRecords = new Map(
+    records.map((record) => {
+      const filename = `${getEasternDate(new Date(record.start))}-${slugify(record.title)}`;
+      return [`${getGroupDirectory(record.organizer.name)}/${filename}`, record];
+    })
+  );
 
   await Promise.all(
     Array.from(uniqueRecords.entries()).map(async ([relativePath, record]) => {
