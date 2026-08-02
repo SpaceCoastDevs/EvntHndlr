@@ -71,12 +71,14 @@ function isEventbriteSource(url: string): boolean {
 function getSourceImageUrl(image: unknown): string | null {
   const value = Array.isArray(image) ? image[0] : image;
   const url =
-    typeof value === 'string'
+    typeof value === "string"
       ? value
-      : value && typeof value === 'object' && ('url' in value || 'contentUrl' in value)
-        ? (value.url || value.contentUrl)
+      : value &&
+          typeof value === "object" &&
+          ("url" in value || "contentUrl" in value)
+        ? value.url || value.contentUrl
         : null;
-  return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null;
+  return typeof url === "string" && /^https?:\/\//.test(url) ? url : null;
 }
 
 function isLumaSource(url: string): boolean {
@@ -84,7 +86,9 @@ function isLumaSource(url: string): boolean {
 }
 
 function normalizeEventbriteEventUrl(href: string): string {
-  const absolute = href.startsWith("http") ? href : `https://www.eventbrite.com${href}`;
+  const absolute = href.startsWith("http")
+    ? href
+    : `https://www.eventbrite.com${href}`;
   return absolute.split("?")[0].replace(/\/$/, "");
 }
 
@@ -111,9 +115,13 @@ function isBrevardCountyLumaEvent(event: LumaEventItem): boolean {
     }
   }
 
-  const fullAddress = `${geo.full_address || ""} ${geo.short_address || ""}`.toUpperCase();
+  const fullAddress =
+    `${geo.full_address || ""} ${geo.short_address || ""}`.toUpperCase();
   for (const brevardCity of BREVARD_CITIES) {
-    if (fullAddress.includes(`${brevardCity}, FL`) || fullAddress.includes(` ${brevardCity} FL`)) {
+    if (
+      fullAddress.includes(`${brevardCity}, FL`) ||
+      fullAddress.includes(` ${brevardCity} FL`)
+    ) {
       return true;
     }
   }
@@ -134,10 +142,16 @@ function isBrevardCountyEventbriteLocation(location: unknown): boolean {
     address?.streetAddress,
     address?.addressLocality,
     address?.addressRegion,
-  ].filter((value): value is string => typeof value === "string").join(" ").toUpperCase();
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toUpperCase();
 
   for (const brevardCity of BREVARD_CITIES) {
-    if (locationText.includes(`${brevardCity}, FL`) || locationText.includes(` ${brevardCity} FL`)) {
+    if (
+      locationText.includes(`${brevardCity}, FL`) ||
+      locationText.includes(` ${brevardCity} FL`)
+    ) {
       return true;
     }
   }
@@ -201,7 +215,9 @@ function extractJsonArrayAfterKey(html: string, key: string): unknown[] {
   return [];
 }
 
-async function extractEventbriteEvents(sourceUrl: string): Promise<SourceEventLink[]> {
+async function extractEventbriteEvents(
+  sourceUrl: string,
+): Promise<SourceEventLink[]> {
   try {
     const html = await (await fetch(sourceUrl)).text();
     const $ = cheerio.load(html);
@@ -222,12 +238,17 @@ async function extractEventbriteEvents(sourceUrl: string): Promise<SourceEventLi
       foundEvents.push({
         href: normalized,
         meetupName: organizerName,
-        requireBrevardCountyLocation: sourceUrl.includes("network-launch-107498260021"),
+        requireBrevardCountyLocation: sourceUrl.includes(
+          "network-launch-107498260021",
+        ),
       });
     };
 
     // Eventbrite organizer pages embed upcomingEvents as JSON in the HTML payload.
-    const upcomingEvents = extractJsonArrayAfterKey(html, "upcomingEvents") as Array<{ url?: string }>;
+    const upcomingEvents = extractJsonArrayAfterKey(
+      html,
+      "upcomingEvents",
+    ) as Array<{ url?: string }>;
     for (const event of upcomingEvents) {
       if (event.url) {
         addEventUrl(event.url);
@@ -250,7 +271,9 @@ async function extractEventbriteEvents(sourceUrl: string): Promise<SourceEventLi
   }
 }
 
-async function extractLumaEvents(sourceUrl: string): Promise<SourceEventLink[]> {
+async function extractLumaEvents(
+  sourceUrl: string,
+): Promise<SourceEventLink[]> {
   try {
     const html = await (await fetch(sourceUrl)).text();
     const $ = cheerio.load(html);
@@ -263,47 +286,64 @@ async function extractLumaEvents(sourceUrl: string): Promise<SourceEventLink[]> 
     const addEventUrl = (href: string) => {
       if (!href) return;
       const normalizedPath = href.startsWith("/") ? href : `/${href}`;
-      const absolute = href.startsWith("http") ? href : `https://luma.com${normalizedPath}`;
+      const absolute = href.startsWith("http")
+        ? href
+        : `https://luma.com${normalizedPath}`;
       const normalized = absolute.split("?")[0].replace(/\/$/, "");
       if (seenUrls.has(normalized)) return;
       seenUrls.add(normalized);
       foundEvents.push({ href: normalized, meetupName: sourceDisplayName });
     };
 
-    // Direct Luma event pages include JSON-LD with @type Event.
+    // Luma event and calendar pages include JSON-LD Event entries, sometimes
+    // nested in an @graph or an ItemList.
     let hasJsonLdEvent = false;
-    $('script[type="application/ld+json"]').each((_: any, element: any) => {
-      try {
-        const scriptContent = $(element).html();
-        if (!scriptContent) return;
-        const data = JSON.parse(scriptContent);
-        const entries = Array.isArray(data) ? data : [data];
-        for (const entry of entries) {
-          if (entry?.["@type"] === "Event" && typeof entry.url === "string") {
-            hasJsonLdEvent = true;
-            addEventUrl(entry.url);
-          }
-        }
-      } catch {
-        // Continue if JSON parsing fails
+    const collectJsonLdEvents = (value: unknown) => {
+      if (Array.isArray(value)) {
+        value.forEach(collectJsonLdEvents);
+        return;
       }
-    });
+      if (!value || typeof value !== "object") return;
+
+      const entry = value as Record<string, unknown>;
+      const types = Array.isArray(entry["@type"])
+        ? entry["@type"]
+        : [entry["@type"]];
+      if (types.includes("Event") && typeof entry.url === "string") {
+        hasJsonLdEvent = true;
+        addEventUrl(entry.url);
+      }
+
+      Object.values(entry).forEach(collectJsonLdEvents);
+    };
+    if (!sourceUrl.includes("luma.com/genai-collective")) {
+      $('script[type="application/ld+json"]').each((_: any, element: any) => {
+        try {
+          const scriptContent = $(element).html();
+          if (!scriptContent) return;
+          collectJsonLdEvents(JSON.parse(scriptContent));
+        } catch {
+          // Continue if JSON parsing fails
+        }
+      });
+    }
 
     // Luma calendar pages expose events in __NEXT_DATA__. For the AI Collective
     // source, only include events located in Brevard County.
     if (!hasJsonLdEvent) {
-      const nextDataRaw = $('#__NEXT_DATA__').html();
+      const nextDataRaw = $("#__NEXT_DATA__").html();
       if (nextDataRaw) {
         try {
           const nextData = JSON.parse(nextDataRaw);
           const initialData = nextData?.props?.pageProps?.initialData;
-          if (initialData?.kind === 'calendar') {
+          if (initialData?.kind === "calendar") {
             const calendarName = initialData?.data?.calendar?.name;
-            if (typeof calendarName === 'string' && calendarName.trim()) {
+            if (typeof calendarName === "string" && calendarName.trim()) {
               sourceDisplayName = calendarName.trim();
             }
 
-            const featuredItems = initialData?.data?.featured_items as Array<{ event?: LumaEventItem }> | undefined;
+            const featuredItems = initialData?.data?.featured_items as
+              Array<{ event?: LumaEventItem }> | undefined;
             if (Array.isArray(featuredItems)) {
               for (const item of featuredItems) {
                 const event = item?.event;
@@ -360,18 +400,22 @@ async function extractAllEvents(groupUrl: string): Promise<SourceEventLink[]> {
     const $ = cheerio.load(response);
 
     // Extract meetup name from the page
-    const meetupName = $("#group-name-link").text().trim() || $('h1').first().text().trim();
+    const meetupName =
+      $("#group-name-link").text().trim() || $("h1").first().text().trim();
 
-    const eventUrls: { href: string; meetupName: string; }[] = [];
+    const eventUrls: { href: string; meetupName: string }[] = [];
     const seenUrls = new Set<string>();
 
     // Helper to normalize and add event URLs
     const addEventUrl = (href: string) => {
-      if (!href || !href.includes('/events/')) return;
-      if (href.includes('/events/past') || href.includes('/events/calendar')) return;
+      if (!href || !href.includes("/events/")) return;
+      if (href.includes("/events/past") || href.includes("/events/calendar"))
+        return;
       // Strip query params for deduplication
-      const cleanUrl = href.split('?')[0].replace(/\/$/, '') + '/';
-      const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `https://www.meetup.com${cleanUrl}`;
+      const cleanUrl = href.split("?")[0].replace(/\/$/, "") + "/";
+      const fullUrl = cleanUrl.startsWith("http")
+        ? cleanUrl
+        : `https://www.meetup.com${cleanUrl}`;
       if (!seenUrls.has(fullUrl) && /\/events\/\d+/.test(fullUrl)) {
         seenUrls.add(fullUrl);
         eventUrls.push({ href: fullUrl, meetupName });
@@ -379,16 +423,16 @@ async function extractAllEvents(groupUrl: string): Promise<SourceEventLink[]> {
     };
 
     // Try to extract events from JSON-LD structured data first
-    $('script[type="application/ld+json"]').each((_:any, element:any) => {
+    $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
         const scriptContent = $(element).html();
         if (scriptContent) {
           const data = JSON.parse(scriptContent);
-          
+
           // Check if it's an array of events
           if (Array.isArray(data)) {
             for (const item of data) {
-              if (item['@type'] === 'Event' && item.url) {
+              if (item["@type"] === "Event" && item.url) {
                 addEventUrl(item.url);
               }
             }
@@ -400,19 +444,19 @@ async function extractAllEvents(groupUrl: string): Promise<SourceEventLink[]> {
     });
 
     // Also extract event links from HTML
-    $('a[data-eventref], a[href*="/events/"]').each((_:any, element:any) => {
+    $('a[data-eventref], a[href*="/events/"]').each((_: any, element: any) => {
       const href = $(element).attr("href");
       if (href) addEventUrl(href);
     });
 
     // Fetch the /events/ listing page for a more complete list
-    const eventsPageUrl = groupUrl.replace(/\/?$/, '/events/');
+    const eventsPageUrl = groupUrl.replace(/\/?$/, "/events/");
     try {
       const eventsResponse = await (await fetch(eventsPageUrl)).text();
       const $events = cheerio.load(eventsResponse);
 
       // Extract from __NEXT_DATA__ on the events listing page
-      const nextDataScript = $events('#__NEXT_DATA__');
+      const nextDataScript = $events("#__NEXT_DATA__");
       if (nextDataScript.length > 0) {
         try {
           const nextDataContent = nextDataScript.html();
@@ -423,7 +467,7 @@ async function extractAllEvents(groupUrl: string): Promise<SourceEventLink[]> {
             if (apolloState) {
               for (const key of Object.keys(apolloState)) {
                 const obj = apolloState[key];
-                if (obj?.__typename === 'Event' && obj?.eventUrl) {
+                if (obj?.__typename === "Event" && obj?.eventUrl) {
                   addEventUrl(obj.eventUrl);
                 }
               }
@@ -435,7 +479,7 @@ async function extractAllEvents(groupUrl: string): Promise<SourceEventLink[]> {
       }
 
       // Also extract event links from the events page HTML
-      $events('a[href*="/events/"]').each((_:any, element:any) => {
+      $events('a[href*="/events/"]').each((_: any, element: any) => {
         const href = $events(element).attr("href");
         if (href) addEventUrl(href);
       });
@@ -483,14 +527,20 @@ async function extractEventbriteEventData(
             if (typeof entry.name === "string" && entry.name.trim()) {
               eventName = entry.name.trim();
             }
-            if (typeof entry.description === "string" && entry.description.trim()) {
+            if (
+              typeof entry.description === "string" &&
+              entry.description.trim()
+            ) {
               eventDescription = entry.description.trim();
             }
             if (typeof entry.startDate === "string" && entry.startDate.trim()) {
               startDate = entry.startDate.trim();
             }
             imageUrl = getSourceImageUrl(entry.image) || imageUrl;
-            if (requireBrevardCountyLocation && isBrevardCountyEventbriteLocation(entry.location)) {
+            if (
+              requireBrevardCountyLocation &&
+              isBrevardCountyEventbriteLocation(entry.location)
+            ) {
               isBrevardCountyLocation = true;
             }
             if (entry.organizer) {
@@ -562,7 +612,8 @@ async function extractLumaEventData(
     const html = await (await fetch(url)).text();
     const $ = cheerio.load(html);
 
-    let eventName = $("title").text().replace(" · Luma", "").trim() || fallbackName;
+    let eventName =
+      $("title").text().replace(" · Luma", "").trim() || fallbackName;
     let eventDescription: string | null = null;
     let imageUrl: string | null = null;
     let startDate: string | null = null;
@@ -577,14 +628,21 @@ async function extractLumaEventData(
         const entries = Array.isArray(data) ? data : [data];
 
         for (const entry of entries) {
-          if (!entry || typeof entry !== "object" || entry["@type"] !== "Event") {
+          if (
+            !entry ||
+            typeof entry !== "object" ||
+            entry["@type"] !== "Event"
+          ) {
             continue;
           }
 
           if (typeof entry.name === "string" && entry.name.trim()) {
             eventName = entry.name.trim();
           }
-          if (typeof entry.description === "string" && entry.description.trim()) {
+          if (
+            typeof entry.description === "string" &&
+            entry.description.trim()
+          ) {
             eventDescription = entry.description.trim();
           }
           if (typeof entry.startDate === "string" && entry.startDate.trim()) {
@@ -593,11 +651,17 @@ async function extractLumaEventData(
           imageUrl = getSourceImageUrl(entry.image) || imageUrl;
           if (entry.organizer) {
             if (Array.isArray(entry.organizer)) {
-              const firstNamed = entry.organizer.find((organizer: any) => typeof organizer?.name === "string" && organizer.name.trim());
+              const firstNamed = entry.organizer.find(
+                (organizer: any) =>
+                  typeof organizer?.name === "string" && organizer.name.trim(),
+              );
               if (firstNamed) {
                 organizerName = firstNamed.name.trim();
               }
-            } else if (typeof entry.organizer === "object" && typeof entry.organizer.name === "string") {
+            } else if (
+              typeof entry.organizer === "object" &&
+              typeof entry.organizer.name === "string"
+            ) {
               organizerName = entry.organizer.name.trim();
             } else if (typeof entry.organizer === "string") {
               organizerName = entry.organizer;
@@ -660,7 +724,12 @@ async function extractEventData(
   requireBrevardCountyLocation = false,
 ): Promise<EventData | null> {
   if (isEventbriteSource(groupUrl) || isEventbriteSource(url)) {
-    return extractEventbriteEventData(url, groupUrl, meetupName, requireBrevardCountyLocation);
+    return extractEventbriteEventData(
+      url,
+      groupUrl,
+      meetupName,
+      requireBrevardCountyLocation,
+    );
   }
 
   if (isLumaSource(groupUrl) || isLumaSource(url)) {
@@ -679,7 +748,9 @@ async function extractEventData(
 
     // Extract startDate from JSON-LD script tags
     let startDate: string | null = null;
-    let imageUrl = getSourceImageUrl($('meta[property="og:image"]').attr('content'));
+    let imageUrl = getSourceImageUrl(
+      $('meta[property="og:image"]').attr("content"),
+    );
     $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
         const scriptContent = $(element).html();
@@ -817,7 +888,15 @@ function expandRecurringDates(
   }
 
   const desc = event.recurrenceDescription;
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayNames = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
 
   // Parse optional end date: "until Month Day, Year"
   let endDate: Date | null = null;
@@ -829,61 +908,72 @@ function expandRecurringDates(
     }
   }
 
-  const easternFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
+  const easternFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
   });
-  const getEasternPart = (date: Date, type: Intl.DateTimeFormatPartTypes): string =>
-    easternFormatter.formatToParts(date).find((part) => part.type === type)?.value || '';
+  const getEasternPart = (
+    date: Date,
+    type: Intl.DateTimeFormatPartTypes,
+  ): string =>
+    easternFormatter.formatToParts(date).find((part) => part.type === type)
+      ?.value || "";
 
   // Read the original event's wall-clock time in the event timezone. Using
   // Date#getHours() depends on the runner timezone (UTC in Actions) and
   // shifts recurring occurrences when their Eastern offset is reapplied.
   const originalDate = new Date(event.datetime);
-  const originalYear = Number(getEasternPart(originalDate, 'year'));
-  const originalMonth = Number(getEasternPart(originalDate, 'month'));
-  const originalDay = Number(getEasternPart(originalDate, 'day'));
-  const hours = Number(getEasternPart(originalDate, 'hour'));
-  const minutes = Number(getEasternPart(originalDate, 'minute'));
+  const originalYear = Number(getEasternPart(originalDate, "year"));
+  const originalMonth = Number(getEasternPart(originalDate, "month"));
+  const originalDay = Number(getEasternPart(originalDate, "day"));
+  const hours = Number(getEasternPart(originalDate, "hour"));
+  const minutes = Number(getEasternPart(originalDate, "minute"));
   const tzMatch = event.datetime.match(/([+-]\d{2}:\d{2})$/);
-  const tzSuffix = tzMatch ? tzMatch[1] : '';
+  const tzSuffix = tzMatch ? tzMatch[1] : "";
 
   const monthEnd = new Date(filterYear, filterMonth, 0); // Last day of month
 
   // Helper to build an occurrence EventData for a given day
   const buildOccurrence = (day: number, isFirst: boolean): EventData => {
     const candidate = new Date(Date.UTC(filterYear, filterMonth - 1, day));
-    const monthStr = String(filterMonth).padStart(2, '0');
-    const dayStr = String(day).padStart(2, '0');
-    const hourStr = String(hours).padStart(2, '0');
-    const minStr = String(minutes).padStart(2, '0');
+    const monthStr = String(filterMonth).padStart(2, "0");
+    const dayStr = String(day).padStart(2, "0");
+    const hourStr = String(hours).padStart(2, "0");
+    const minStr = String(minutes).padStart(2, "0");
     const occDatetime = `${filterYear}-${monthStr}-${dayStr}T${hourStr}:${minStr}:00${tzSuffix}`;
-    const occDate = candidate.toLocaleDateString('en-US', {
-      weekday: 'short', month: 'short', day: 'numeric',
+    const occDate = candidate.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
     });
-    const occTime = originalDate.toLocaleTimeString('en-US', {
-      hour: 'numeric', minute: '2-digit',
-      timeZone: 'America/New_York',
+    const occTime = originalDate.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York",
     });
     return {
       ...event,
       datetime: occDatetime,
       date: occDate,
       time: occTime,
-      url: isFirst ? event.url : event.group_url + 'events/',
+      url: isFirst ? event.url : event.group_url + "events/",
     };
   };
 
   // Check for "Nth weekday of the month" pattern (e.g., "Every 2nd Wednesday of the month")
-  const nthMatch = desc.match(/Every\s+(\d+)(?:st|nd|rd|th)\s+(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+of\s+the\s+month/i);
+  const nthMatch = desc.match(
+    /Every\s+(\d+)(?:st|nd|rd|th)\s+(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+of\s+the\s+month/i,
+  );
   if (nthMatch) {
     const nthWeek = parseInt(nthMatch[1]);
-    const targetDay = dayNames.findIndex(d => d.toLowerCase() === nthMatch[2].toLowerCase());
+    const targetDay = dayNames.findIndex(
+      (d) => d.toLowerCase() === nthMatch[2].toLowerCase(),
+    );
     if (targetDay === -1) return [event];
 
     // Find the nth occurrence of targetDay in the month
@@ -894,7 +984,11 @@ function expandRecurringDates(
         count++;
         if (count === nthWeek) {
           // Check date constraints
-          const originalStartOfDay = Date.UTC(originalYear, originalMonth - 1, originalDay);
+          const originalStartOfDay = Date.UTC(
+            originalYear,
+            originalMonth - 1,
+            originalDay,
+          );
           if (candidate.getTime() < originalStartOfDay) return [event];
           if (endDate && candidate > endDate) return [event];
           return [buildOccurrence(day, true)];
@@ -905,12 +999,14 @@ function expandRecurringDates(
   }
 
   // Weekly pattern: "Every [N] week(s) on DayName"
-  const dayMatch = desc.match(/on\s+(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)/i);
+  const dayMatch = desc.match(
+    /on\s+(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)/i,
+  );
   if (!dayMatch) {
     return [event];
   }
   const targetDayOfWeek = dayNames.findIndex(
-    d => d.toLowerCase() === dayMatch[1].toLowerCase()
+    (d) => d.toLowerCase() === dayMatch[1].toLowerCase(),
   );
   if (targetDayOfWeek === -1) {
     return [event];
@@ -932,7 +1028,11 @@ function expandRecurringDates(
 
     // Check if this date is before the original event start
     const candidateTime = candidate.getTime();
-    const originalStartOfDay = Date.UTC(originalYear, originalMonth - 1, originalDay);
+    const originalStartOfDay = Date.UTC(
+      originalYear,
+      originalMonth - 1,
+      originalDay,
+    );
     if (candidateTime < originalStartOfDay) continue;
 
     // Check the week interval - must be a multiple of weekInterval weeks from original
@@ -966,6 +1066,7 @@ function getMeetupGroupList(): string[] {
     "https://www.eventbrite.com/o/protoworkstudio-76945735013",
     "https://www.eventbrite.com/o/network-launch-107498260021",
     "https://luma.com/genai-collective",
+    "https://luma.com/calendar/cal-EO6JltBLpwXrrUO",
   ];
 }
 /**
@@ -976,26 +1077,42 @@ async function renderEvents(
   recurringGroups: RecurringEventGroup[],
   targetMonth?: string,
 ): Promise<string> {
-
   const now = new Date();
   // Get current date/time in Eastern timezone
-  const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const currentDay = (easternTime.getDate()).toString().padStart(2, '0');
-  const currentMonth = (easternTime.getMonth() + 1).toString().padStart(2, '0');
-  const currentMonthString = easternTime.toLocaleString('en-US', { month: 'long', timeZone: 'America/New_York' }).charAt(0).toUpperCase() + easternTime.toLocaleString('en-US', { month: 'long', timeZone: 'America/New_York' }).slice(1);
+  const easternTime = new Date(
+    now.toLocaleString("en-US", { timeZone: "America/New_York" }),
+  );
+  const currentDay = easternTime.getDate().toString().padStart(2, "0");
+  const currentMonth = (easternTime.getMonth() + 1).toString().padStart(2, "0");
+  const currentMonthString =
+    easternTime
+      .toLocaleString("en-US", { month: "long", timeZone: "America/New_York" })
+      .charAt(0)
+      .toUpperCase() +
+    easternTime
+      .toLocaleString("en-US", { month: "long", timeZone: "America/New_York" })
+      .slice(1);
   const currentYear = easternTime.getFullYear();
 
   let postMonthString = currentMonthString;
   let postYear = currentYear;
 
   if (targetMonth) {
-    const [year, month] = targetMonth.includes('-')
-      ? targetMonth.split('-').map(Number)
+    const [year, month] = targetMonth.includes("-")
+      ? targetMonth.split("-").map(Number)
       : [currentYear, Number(targetMonth)];
 
-    if (Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12) {
+    if (
+      Number.isInteger(year) &&
+      Number.isInteger(month) &&
+      month >= 1 &&
+      month <= 12
+    ) {
       const targetDate = new Date(Date.UTC(year, month - 1, 1, 12));
-      postMonthString = targetDate.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+      postMonthString = targetDate.toLocaleString("en-US", {
+        month: "long",
+        timeZone: "UTC",
+      });
       postYear = year;
     }
   }
@@ -1013,13 +1130,14 @@ image: ~/assets/images/space-coast-devs-events.png
 ---
 
 import CallToAction from '~/components/widgets/CallToAction.astro';
-`
+`;
 
   try {
     // Generate markdown content using template literals
-    output += `${records.map(post =>
-
-      post.group_url === "https://www.meetup.com/space-coast-devs/" ? `
+    output += `${records
+      .map((post) =>
+        post.group_url === "https://www.meetup.com/space-coast-devs/"
+          ? `
 <CallToAction
   actions={[
     {
@@ -1035,43 +1153,59 @@ import CallToAction from '~/components/widgets/CallToAction.astro';
     [${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
   </Fragment>
   <Fragment slot="subtitle">
-  ${post.description || ''}
+  ${post.description || ""}
   </Fragment>
-</CallToAction>` : `
+</CallToAction>`
+          : `
 ## [${post.title}](${post.url}) via [${post.meetup_name}](${post.group_url})
 
-${post.description ? `${post.description}` : ''}
+${post.description ? `${post.description}` : ""}
 
 - **Date:** ${post.date}
 - **Time:** ${post.time}
 - **Group:** [${post.meetup_name}](${post.group_url})
-`)
-      .join('\n')}`;
+`,
+      )
+      .join("\n")}`;
 
     // Render recurring event groups
     if (recurringGroups.length > 0) {
-      output += `\n${recurringGroups.map(group => `
+      output += `\n${recurringGroups
+        .map(
+          (group) => `
 ## ${group.title} via [${group.meetup_name}](${group.group_url})
 
-${group.description ? `${group.description}` : ''}
+${group.description ? `${group.description}` : ""}
 
 - **Recurring:** ${group.recurrenceDescription}
 - **Group:** [${group.meetup_name}](${group.group_url})
 
 **Upcoming Dates:**
-${group.occurrences.map(occ => {
-  const d = occ.datetime ? new Date(occ.datetime) : null;
-  const dateStr = d
-    ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' })
-    : occ.date;
-  const timeStr = d
-    ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
-    : occ.time;
-  return `- [${dateStr} at ${timeStr}](${occ.url})`;
-}).join('\n')}
-`).join('\n')}`;
+${group.occurrences
+  .map((occ) => {
+    const d = occ.datetime ? new Date(occ.datetime) : null;
+    const dateStr = d
+      ? d.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          timeZone: "America/New_York",
+        })
+      : occ.date;
+    const timeStr = d
+      ? d.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          timeZone: "America/New_York",
+        })
+      : occ.time;
+    return `- [${dateStr} at ${timeStr}](${occ.url})`;
+  })
+  .join("\n")}
+`,
+        )
+        .join("\n")}`;
     }
-
   } catch (error) {
     console.error("Error rendering events:", error);
   }
@@ -1082,7 +1216,10 @@ ${group.occurrences.map(occ => {
 /**
  * Groups recurring events by title + group, returning single events and recurring groups separately
  */
-function groupRecurringEvents(events: EventData[]): { singles: EventData[]; groups: RecurringEventGroup[] } {
+function groupRecurringEvents(events: EventData[]): {
+  singles: EventData[];
+  groups: RecurringEventGroup[];
+} {
   const singles: EventData[] = [];
   const recurringMap = new Map<string, EventData[]>();
 
@@ -1108,15 +1245,20 @@ function groupRecurringEvents(events: EventData[]): { singles: EventData[]; grou
     });
 
     // Deduplicate occurrences by date, preferring real event URLs over generated ones
-    const dateMap = new Map<string, { date: string; time: string; url: string; datetime: string | null }>();
+    const dateMap = new Map<
+      string,
+      { date: string; time: string; url: string; datetime: string | null }
+    >();
     for (const e of sorted) {
       if (!e.datetime) continue;
       // Use just the date portion as key (YYYY-MM-DD)
-      const dateKey = new Date(e.datetime).toISOString().split('T')[0];
+      const dateKey = new Date(e.datetime).toISOString().split("T")[0];
       const existing = dateMap.get(dateKey);
       // Prefer URLs with a specific event ID (contains /events/digits/) over generic ones
       const hasRealUrl = /\/events\/\d+/.test(e.url);
-      const existingHasRealUrl = existing ? /\/events\/\d+/.test(existing.url) : false;
+      const existingHasRealUrl = existing
+        ? /\/events\/\d+/.test(existing.url)
+        : false;
       if (!existing || (hasRealUrl && !existingHasRealUrl)) {
         dateMap.set(dateKey, {
           date: e.date,
@@ -1158,10 +1300,15 @@ function groupRecurringEvents(events: EventData[]): { singles: EventData[]; grou
  * Filters events to only include those happening in the specified month/year.
  * For recurring events, expands them into all occurrences within the target month.
  */
-function filterEventsByMonth(events: EventData[], targetMonth?: string): EventData[] {
+function filterEventsByMonth(
+  events: EventData[],
+  targetMonth?: string,
+): EventData[] {
   const now = new Date();
   // Get current date/time in Eastern timezone
-  const easternTime = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const easternTime = new Date(
+    now.toLocaleString("en-US", { timeZone: "America/New_York" }),
+  );
   const currentMonth = easternTime.getMonth() + 1; // getMonth() returns 0-11
   const currentYear = easternTime.getFullYear();
 
@@ -1170,8 +1317,8 @@ function filterEventsByMonth(events: EventData[], targetMonth?: string): EventDa
 
   if (targetMonth) {
     // Parse the target month (format: "YYYY-MM" or just "MM")
-    if (targetMonth.includes('-')) {
-      const [year, month] = targetMonth.split('-');
+    if (targetMonth.includes("-")) {
+      const [year, month] = targetMonth.split("-");
       filterYear = parseInt(year);
       filterMonth = parseInt(month);
     } else {
@@ -1195,9 +1342,11 @@ function filterEventsByMonth(events: EventData[], targetMonth?: string): EventDa
     }
   }
 
-  console.error(`Expanded ${events.length} events to ${expandedEvents.length} (after recurring expansion)`);
+  console.error(
+    `Expanded ${events.length} events to ${expandedEvents.length} (after recurring expansion)`,
+  );
 
-  return expandedEvents.filter(event => {
+  return expandedEvents.filter((event) => {
     if (!event.datetime) return false;
 
     const eventDate = new Date(event.datetime);
@@ -1214,10 +1363,11 @@ function filterEventsByMonth(events: EventData[], targetMonth?: string): EventDa
 async function main(): Promise<void> {
   // Parse command line arguments
   const args = process.argv.slice(2);
-  const monthArg = args.find(arg => arg.startsWith('--month='))?.split('=')[1] ||
-    args.find(arg => arg.startsWith('-m='))?.split('=')[1];
+  const monthArg =
+    args.find((arg) => arg.startsWith("--month="))?.split("=")[1] ||
+    args.find((arg) => arg.startsWith("-m="))?.split("=")[1];
 
-  if (args.includes('--help') || args.includes('-h')) {
+  if (args.includes("--help") || args.includes("-h")) {
     console.log(`
 Usage: npm run dev [options]
        npm run start [options]
@@ -1261,8 +1411,12 @@ Examples:
   // Filter events by month
   const filteredEvents = filterEventsByMonth(eventData, monthArg);
 
-  const monthDisplay = monthArg || `current month (${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')})`;
-  console.error(`Filtered to ${filteredEvents.length} events for ${monthDisplay}`);
+  const monthDisplay =
+    monthArg ||
+    `current month (${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")})`;
+  console.error(
+    `Filtered to ${filteredEvents.length} events for ${monthDisplay}`,
+  );
 
   // Sort events by datetime
   const sortedEventData = filteredEvents.sort((a, b) => {
@@ -1272,7 +1426,9 @@ Examples:
 
   // Group recurring events together
   const { singles, groups } = groupRecurringEvents(sortedEventData);
-  console.error(`Found ${singles.length} single events and ${groups.length} recurring event groups`);
+  console.error(
+    `Found ${singles.length} single events and ${groups.length} recurring event groups`,
+  );
 
   const events = await renderEvents(singles, groups, monthArg);
   console.error("Rendered events:\n");
