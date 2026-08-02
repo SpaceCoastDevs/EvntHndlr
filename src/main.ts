@@ -607,14 +607,9 @@ async function extractEventData(url: string, groupUrl: string, meetupName: strin
     let eventName = $("title").text();
     eventName = eventName.replace(" | Meetup", "").trim();
 
-    // Split the event name by comma to extract date and time
-    const eventParts = eventName.split(",");
-    const eventTime = eventParts[eventParts.length - 1]?.trim() || "";
-    const eventDate = eventParts[eventParts.length - 3]?.trim() || "";
-
     // Extract startDate from JSON-LD script tags
     let startDate: string | null = null;
-    $('script[type="application/ld+json"]').each((_:any, element:any) => {
+    $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
         const scriptContent = $(element).html();
         if (scriptContent) {
@@ -637,13 +632,29 @@ async function extractEventData(url: string, groupUrl: string, meetupName: strin
     });
 
     const eventDatetime = startDate;
+    const eventDateObj = startDate ? new Date(startDate) : null;
+    const eventDate = eventDateObj
+      ? eventDateObj.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          timeZone: "America/New_York",
+        })
+      : "";
+    const eventTime = eventDateObj
+      ? eventDateObj.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          timeZone: "America/New_York",
+        })
+      : "";
 
     // Extract recurring event series info from __NEXT_DATA__
     let isRecurring = false;
     let recurrenceDescription: string | null = null;
     let cleanTitle: string | null = null;
 
-    const nextDataScript = $('#__NEXT_DATA__');
+    const nextDataScript = $("#__NEXT_DATA__");
     if (nextDataScript.length > 0) {
       try {
         const nextDataContent = nextDataScript.html();
@@ -656,7 +667,9 @@ async function extractEventData(url: string, groupUrl: string, meetupName: strin
           if (eventData?.series?.description) {
             isRecurring = true;
             recurrenceDescription = eventData.series.description;
-            console.error(`  Recurring event detected: ${recurrenceDescription}`);
+            console.error(
+              `  Recurring event detected: ${recurrenceDescription}`,
+            );
           }
         }
       } catch (e) {
@@ -667,6 +680,17 @@ async function extractEventData(url: string, groupUrl: string, meetupName: strin
     // Use the clean title from __NEXT_DATA__ if available
     if (cleanTitle) {
       eventName = cleanTitle;
+    }
+
+    // Fallback only when Meetup omits structured datetime metadata.
+    let resolvedEventDate = eventDate;
+    let resolvedEventTime = eventTime;
+    if (!resolvedEventDate || !resolvedEventTime) {
+      const eventParts = eventName.split(",");
+      resolvedEventTime =
+        resolvedEventTime || eventParts[eventParts.length - 1]?.trim() || "";
+      resolvedEventDate =
+        resolvedEventDate || eventParts[eventParts.length - 3]?.trim() || "";
     }
 
     // Get description of the event
@@ -685,8 +709,8 @@ async function extractEventData(url: string, groupUrl: string, meetupName: strin
     return {
       title: eventName,
       url: url,
-      date: eventDate,
-      time: eventTime,
+      date: resolvedEventDate,
+      time: resolvedEventTime,
       group_url: groupUrl,
       meetup_name: meetupName,
       description: eventDescription,
