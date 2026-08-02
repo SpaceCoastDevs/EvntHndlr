@@ -73,6 +73,32 @@ function isEventbriteSource(url: string): boolean {
   return /(^https?:\/\/)?(www\.)?eventbrite\.com\//i.test(url);
 }
 
+function getEasternOffset(date: string): string {
+  const offset = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    timeZoneName: "longOffset",
+  })
+    .formatToParts(new Date(`${date}T12:00:00Z`))
+    .find((part) => part.type === "timeZoneName")?.value;
+
+  return offset?.replace("GMT", "") || "-05:00";
+}
+
+function normalizeEventbriteStartDate(
+  startDate: string,
+  title: string,
+): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return startDate;
+
+  const timeMatch = title.match(/\b(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i);
+  const rawHour = timeMatch ? Number(timeMatch[1]) : 0;
+  const minute = timeMatch?.[2] || "00";
+  const meridiem = timeMatch?.[3]?.toUpperCase();
+  const hour = meridiem ? (rawHour % 12) + (meridiem === "PM" ? 12 : 0) : 0;
+
+  return `${startDate}T${String(hour).padStart(2, "0")}:${minute}:00${getEasternOffset(startDate)}`;
+}
+
 function getSourceImageUrl(image: unknown): string | null {
   const value = Array.isArray(image) ? image[0] : image;
   const url =
@@ -552,7 +578,11 @@ async function extractEventbriteEventData(
         for (const entry of entries) {
           if (!entry || typeof entry !== "object") continue;
           const type = entry["@type"];
-          if (type === "Event" || type === "SocialEvent") {
+          if (
+            type === "Event" ||
+            type === "SocialEvent" ||
+            type === "BusinessEvent"
+          ) {
             if (typeof entry.name === "string" && entry.name.trim()) {
               eventName = entry.name.trim();
             }
@@ -597,6 +627,9 @@ async function extractEventbriteEventData(
       eventDescription = metaDescription ? metaDescription.trim() : null;
     }
 
+    startDate = startDate
+      ? normalizeEventbriteStartDate(startDate, eventName)
+      : null;
     const eventDateObj = startDate ? new Date(startDate) : null;
     const eventDate = eventDateObj
       ? eventDateObj.toLocaleDateString("en-US", {

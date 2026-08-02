@@ -149,8 +149,20 @@ function generatePostFilename(month?: string): string {
   return `src/content/post/${datePrefix}-space-coast-tech-events-${monthName}-${year}.mdx`;
 }
 
-async function collectEvents(month?: string): Promise<EventData[]> {
-  const groupLinks = getMeetupGroupList();
+interface EventCollectionOptions {
+  month?: string;
+  sourceUrls?: string[];
+  futureOnly?: boolean;
+}
+
+async function collectEvents({
+  month,
+  sourceUrls,
+  futureOnly = false,
+}: EventCollectionOptions = {}): Promise<EventData[]> {
+  const groupLinks = getMeetupGroupList().filter(
+    (groupLink) => !sourceUrls || sourceUrls.includes(groupLink),
+  );
   const eventData: EventData[] = [];
 
   for (const groupLink of groupLinks) {
@@ -169,7 +181,12 @@ async function collectEvents(month?: string): Promise<EventData[]> {
     }
   }
 
-  const filteredEvents = filterEventsByMonth(eventData, month);
+  const filteredEvents = futureOnly
+    ? eventData.filter((event) => {
+        if (!event.datetime) return false;
+        return new Date(event.datetime).getTime() >= Date.now();
+      })
+    : filterEventsByMonth(eventData, month);
   const sortedEventData = filteredEvents.sort((a, b) => {
     if (!a.datetime || !b.datetime) return 0;
     return new Date(a.datetime).getTime() - new Date(b.datetime).getTime();
@@ -179,7 +196,7 @@ async function collectEvents(month?: string): Promise<EventData[]> {
 }
 
 async function generateEventsMarkdown(month?: string): Promise<string> {
-  const sortedEventData = await collectEvents(month);
+  const sortedEventData = await collectEvents({ month });
   const { singles, groups } = groupRecurringEvents(sortedEventData);
   return renderEvents(singles, groups, month);
 }
@@ -200,6 +217,11 @@ export async function generateFromCLI(): Promise<void> {
   const eventsDirectoryArg =
     args.find((arg) => arg.startsWith("--event-dir="))?.split("=")[1] ||
     args.find((arg) => arg.startsWith("--events-dir="))?.split("=")[1];
+  const sourceUrls = args
+    .filter((arg) => arg.startsWith("--source="))
+    .flatMap((arg) => arg.slice("--source=".length).split(","))
+    .filter(Boolean);
+  const futureOnly = args.includes("--all-future");
 
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
@@ -215,6 +237,8 @@ Options:
 
   --event-dir=path       Write canonical event JSON records to this directory
   --events-dir=path      Alias for --event-dir
+  --source=url           Limit extraction to one source (may be repeated)
+  --all-future           Keep every currently upcoming event, not just one month
   --no-markdown          Skip the legacy Markdown post output
 
   --stdout               Print markdown to stdout instead of writing a file
@@ -228,7 +252,11 @@ Examples:
     return;
   }
 
-  const events = await collectEvents(monthArg);
+  const events = await collectEvents({
+    month: monthArg,
+    sourceUrls: sourceUrls.length > 0 ? sourceUrls : undefined,
+    futureOnly,
+  });
   const { singles, groups } = groupRecurringEvents(events);
   const markdown = await renderEvents(singles, groups, monthArg);
 
