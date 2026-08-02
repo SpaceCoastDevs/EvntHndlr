@@ -937,6 +937,7 @@ function getMeetupGroupList(): string[] {
   return [
     "https://www.meetup.com/space-coast-devs/",
     "https://www.meetup.com/spacecoastsec",
+    "https://www.meetup.com/hack-the-box-meetup-melbourne-fl-us/",
     "https://www.meetup.com/melbourne-makerspace-florida-usa/",
     "https://www.meetup.com/melbourne-rhug",
     "https://www.meetup.com/startupspacecoast/",
