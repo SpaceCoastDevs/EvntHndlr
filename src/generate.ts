@@ -167,6 +167,7 @@ export async function generateFromCLI(): Promise<void> {
     args.find((arg) => arg.startsWith('-f='))?.split('=')[1];
 
   const stdout = args.includes('--stdout');
+  const noMarkdown = args.includes('--no-markdown');
   const eventsDirectoryArg =
     args.find((arg) => arg.startsWith('--event-dir='))?.split('=')[1] ||
     args.find((arg) => arg.startsWith('--events-dir='))?.split('=')[1];
@@ -185,6 +186,7 @@ Options:
 
   --event-dir=path       Write canonical event JSON records to this directory
   --events-dir=path      Alias for --event-dir
+  --no-markdown          Skip the legacy Markdown post output
 
   --stdout               Print markdown to stdout instead of writing a file
   -h, --help             Show this help message
@@ -206,12 +208,14 @@ Examples:
     return;
   }
 
-  const outputFile = targetFileArg || generatePostFilename(monthArg);
-  const outputDir = path.dirname(outputFile);
-  await fs.mkdir(outputDir, { recursive: true });
-  await fs.writeFile(outputFile, markdown, 'utf8');
+  if (!noMarkdown) {
+    const outputFile = targetFileArg || generatePostFilename(monthArg);
+    const outputDir = path.dirname(outputFile);
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(outputFile, markdown, 'utf8');
 
-  console.log(`Wrote events markdown to ${outputFile}`);
+    console.log(`Wrote events markdown to ${outputFile}`);
+  }
 
   if (eventsDirectoryArg) {
     const count = await writeEventRecords(events, eventsDirectoryArg);
