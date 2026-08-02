@@ -1159,6 +1159,7 @@ async function renderEvents(
 publishDate: ${currentYear}-${currentMonth}-${currentDay}T00:00:00Z
 title: Space Coast Tech Events for ${postMonthString} ${postYear}
 excerpt: List of tech events around the Space Coast for ${postMonthString} ${postYear}.
+permalink: posts/${currentYear}-${currentMonth}-${currentDay}/weekly-space-coast-tech-events
 category: Events
 tags:
   - meetups
