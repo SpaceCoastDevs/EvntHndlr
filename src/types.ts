@@ -1,3 +1,9 @@
+export interface EventCost {
+  type: "free" | "paid";
+  amount?: number;
+  currency?: string;
+}
+
 export interface EventData {
   title: string;
   url: string;
@@ -7,6 +13,7 @@ export interface EventData {
   meetup_name: string;
   description: string | null;
   imageUrl?: string | null;
+  cost?: EventCost | null;
   datetime: string | null;
   isRecurring: boolean;
   recurrenceDescription: string | null;
@@ -18,7 +25,12 @@ export interface RecurringEventGroup {
   meetup_name: string;
   description: string | null;
   recurrenceDescription: string;
-  occurrences: { date: string; time: string; url: string; datetime: string | null }[];
+  occurrences: {
+    date: string;
+    time: string;
+    url: string;
+    datetime: string | null;
+  }[];
 }
 
 export interface JsonLdEvent {
@@ -43,7 +55,7 @@ export interface PullRequestResponse {
 
 export interface DeploymentOptions {
   month?: string;
-  targetFile?: string;  // Auto-generated if not provided: src/content/post/YYYY-MM-DD-space-coast-tech-events-MONTH-YEAR.mdx
+  targetFile?: string; // Auto-generated if not provided: src/content/post/YYYY-MM-DD-space-coast-tech-events-MONTH-YEAR.mdx
   branchPrefix?: string;
   commitMessage?: string;
   prTitle?: string;

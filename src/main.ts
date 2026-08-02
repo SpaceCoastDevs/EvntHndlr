@@ -1,6 +1,11 @@
 import * as cheerio from "cheerio";
 import TurndownService from "turndown";
-import { EventData, JsonLdEvent, RecurringEventGroup } from "./types";
+import {
+  EventCost,
+  EventData,
+  JsonLdEvent,
+  RecurringEventGroup,
+} from "./types";
 
 const turndownService = new TurndownService({
   bulletListMarker: "-",
@@ -79,6 +84,29 @@ function getSourceImageUrl(image: unknown): string | null {
         ? value.url || value.contentUrl
         : null;
   return typeof url === "string" && /^https?:\/\//.test(url) ? url : null;
+}
+
+function getEventCost(offers: unknown): EventCost | null {
+  const offer = Array.isArray(offers) ? offers[0] : offers;
+  if (!offer || typeof offer !== "object") return null;
+
+  const { price, lowPrice, priceCurrency } = offer as Record<string, unknown>;
+  const listedPrice = price ?? lowPrice;
+  const amount =
+    typeof listedPrice === "number"
+      ? listedPrice
+      : typeof listedPrice === "string"
+        ? Number(listedPrice)
+        : NaN;
+  if (!Number.isFinite(amount) || amount < 0) return null;
+
+  return {
+    type: amount === 0 ? "free" : "paid",
+    ...(amount > 0 ? { amount } : {}),
+    ...(typeof priceCurrency === "string" && priceCurrency.trim()
+      ? { currency: priceCurrency.trim().toUpperCase() }
+      : {}),
+  };
 }
 
 function isLumaSource(url: string): boolean {
@@ -508,6 +536,7 @@ async function extractEventbriteEventData(
     let eventName = $("title").text().replace(" | Eventbrite", "").trim();
     let eventDescription: string | null = null;
     let imageUrl: string | null = null;
+    let cost: EventCost | null = null;
     let startDate: string | null = null;
     let organizerName = fallbackOrganizerName;
     let isBrevardCountyLocation = !requireBrevardCountyLocation;
@@ -537,6 +566,7 @@ async function extractEventbriteEventData(
               startDate = entry.startDate.trim();
             }
             imageUrl = getSourceImageUrl(entry.image) || imageUrl;
+            cost = getEventCost(entry.offers) || cost;
             if (
               requireBrevardCountyLocation &&
               isBrevardCountyEventbriteLocation(entry.location)
@@ -593,6 +623,7 @@ async function extractEventbriteEventData(
       meetup_name: organizerName,
       description: eventDescription,
       imageUrl,
+      cost,
       datetime: startDate,
       isRecurring: false,
       recurrenceDescription: null,
@@ -616,6 +647,7 @@ async function extractLumaEventData(
       $("title").text().replace(" · Luma", "").trim() || fallbackName;
     let eventDescription: string | null = null;
     let imageUrl: string | null = null;
+    let cost: EventCost | null = null;
     let startDate: string | null = null;
     let organizerName = fallbackName;
 
@@ -649,6 +681,7 @@ async function extractLumaEventData(
             startDate = entry.startDate.trim();
           }
           imageUrl = getSourceImageUrl(entry.image) || imageUrl;
+          cost = getEventCost(entry.offers) || cost;
           if (entry.organizer) {
             if (Array.isArray(entry.organizer)) {
               const firstNamed = entry.organizer.find(
@@ -704,6 +737,7 @@ async function extractLumaEventData(
       meetup_name: organizerName,
       description: eventDescription,
       imageUrl,
+      cost,
       datetime: startDate,
       isRecurring: false,
       recurrenceDescription: null,
@@ -751,6 +785,7 @@ async function extractEventData(
     let imageUrl = getSourceImageUrl(
       $('meta[property="og:image"]').attr("content"),
     );
+    let cost: EventCost | null = null;
     $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
         const scriptContent = $(element).html();
@@ -762,12 +797,14 @@ async function extractEventData(
               if (typeof item === "object" && item.startDate) {
                 startDate = item.startDate;
                 imageUrl = imageUrl || getSourceImageUrl(item.image);
+                cost = cost || getEventCost(item.offers);
                 break;
               }
             }
           } else if (typeof data === "object" && data.startDate) {
             startDate = data.startDate;
             imageUrl = imageUrl || getSourceImageUrl(data.image);
+            cost = cost || getEventCost(data.offers);
           }
         }
       } catch (e) {
@@ -859,6 +896,7 @@ async function extractEventData(
       meetup_name: meetupName,
       description: eventDescription,
       imageUrl,
+      cost,
       datetime: eventDatetime,
       isRecurring,
       recurrenceDescription,
