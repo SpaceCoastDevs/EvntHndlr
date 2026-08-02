@@ -6,10 +6,306 @@ const turndownService = new TurndownService({
   bulletListMarker: "-",
 });
 
+interface SourceEventLink {
+  href: string;
+  meetupName: string;
+}
+
+interface LumaGeoAddress {
+  city?: string;
+  city_state?: string;
+  country?: string;
+  full_address?: string;
+  short_address?: string;
+}
+
+interface LumaEventItem {
+  name?: string;
+  url?: string;
+  start_at?: string;
+  timezone?: string;
+  location_type?: string;
+  geo_address_info?: LumaGeoAddress;
+}
+
+const BREVARD_CITIES = new Set([
+  "CAPE CANAVERAL",
+  "COCOA",
+  "COCOA BEACH",
+  "GRANT-VALKARIA",
+  "INDIALANTIC",
+  "INDIAN HARBOUR BEACH",
+  "MALABAR",
+  "MELBOURNE",
+  "MELBOURNE BEACH",
+  "MELBOURNE VILLAGE",
+  "MERRITT ISLAND",
+  "MIMS",
+  "PALM BAY",
+  "PALM SHORES",
+  "PORT ST JOHN",
+  "ROCKLEDGE",
+  "SATELLITE BEACH",
+  "SCOTTSMOOR",
+  "SHARPES",
+  "SUNTREE",
+  "TITUSVILLE",
+  "VIERA",
+  "WEST MELBOURNE",
+]);
+
+function isEventbriteSource(url: string): boolean {
+  return /(^https?:\/\/)?(www\.)?eventbrite\.com\//i.test(url);
+}
+
+function isLumaSource(url: string): boolean {
+  return /(^https?:\/\/)?(www\.)?luma\.com\//i.test(url);
+}
+
+function normalizeEventbriteEventUrl(href: string): string {
+  const absolute = href.startsWith("http") ? href : `https://www.eventbrite.com${href}`;
+  return absolute.split("?")[0].replace(/\/$/, "");
+}
+
+function isBrevardCountyLumaEvent(event: LumaEventItem): boolean {
+  const locationType = (event.location_type || "").toLowerCase();
+  if (locationType && locationType !== "offline") {
+    return false;
+  }
+
+  const geo = event.geo_address_info;
+  if (!geo) {
+    return false;
+  }
+
+  const city = (geo.city || "").trim().toUpperCase();
+  if (city && BREVARD_CITIES.has(city)) {
+    return true;
+  }
+
+  const cityState = (geo.city_state || "").trim().toUpperCase();
+  for (const brevardCity of BREVARD_CITIES) {
+    if (cityState.includes(brevardCity)) {
+      return true;
+    }
+  }
+
+  const fullAddress = `${geo.full_address || ""} ${geo.short_address || ""}`.toUpperCase();
+  for (const brevardCity of BREVARD_CITIES) {
+    if (fullAddress.includes(`${brevardCity}, FL`) || fullAddress.includes(` ${brevardCity} FL`)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function extractJsonArrayAfterKey(html: string, key: string): unknown[] {
+  const keyToken = `"${key}":`;
+  const keyIndex = html.indexOf(keyToken);
+  if (keyIndex === -1) {
+    return [];
+  }
+
+  let cursor = keyIndex + keyToken.length;
+  while (cursor < html.length && /\s/.test(html[cursor])) {
+    cursor++;
+  }
+
+  if (html[cursor] !== "[") {
+    return [];
+  }
+
+  const start = cursor;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (; cursor < html.length; cursor++) {
+    const ch = html[cursor];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "[") {
+      depth++;
+    } else if (ch === "]") {
+      depth--;
+      if (depth === 0) {
+        const arraySlice = html.slice(start, cursor + 1);
+        try {
+          const parsed = JSON.parse(arraySlice);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+    }
+  }
+
+  return [];
+}
+
+async function extractEventbriteEvents(sourceUrl: string): Promise<SourceEventLink[]> {
+  try {
+    const html = await (await fetch(sourceUrl)).text();
+    const $ = cheerio.load(html);
+
+    const titleText = $("title").text().trim();
+    const organizerFromTitle = titleText.split(" Events")[0].trim();
+    const organizerName = organizerFromTitle || "Eventbrite Organizer";
+
+    const foundEvents: SourceEventLink[] = [];
+    const seenUrls = new Set<string>();
+
+    const addEventUrl = (href: string) => {
+      if (!href) return;
+      const normalized = normalizeEventbriteEventUrl(href);
+      if (!/\/e\//.test(normalized)) return;
+      if (seenUrls.has(normalized)) return;
+      seenUrls.add(normalized);
+      foundEvents.push({ href: normalized, meetupName: organizerName });
+    };
+
+    // Eventbrite organizer pages embed upcomingEvents as JSON in the HTML payload.
+    const upcomingEvents = extractJsonArrayAfterKey(html, "upcomingEvents") as Array<{ url?: string }>;
+    for (const event of upcomingEvents) {
+      if (event.url) {
+        addEventUrl(event.url);
+      }
+    }
+
+    // Fallback: scrape any rendered event links in case payload shape changes.
+    $('a[href*="/e/"]').each((_: any, element: any) => {
+      const href = $(element).attr("href");
+      if (href) {
+        addEventUrl(href);
+      }
+    });
+
+    console.error(`Found ${foundEvents.length} unique events for ${sourceUrl}`);
+    return foundEvents;
+  } catch (error) {
+    console.error(`Error extracting events from ${sourceUrl}:`, error);
+    return [];
+  }
+}
+
+async function extractLumaEvents(sourceUrl: string): Promise<SourceEventLink[]> {
+  try {
+    const html = await (await fetch(sourceUrl)).text();
+    const $ = cheerio.load(html);
+
+    const foundEvents: SourceEventLink[] = [];
+    const seenUrls = new Set<string>();
+    const titleText = $("title").text().replace(" · Luma", "").trim();
+    let sourceDisplayName = titleText || "Luma";
+
+    const addEventUrl = (href: string) => {
+      if (!href) return;
+      const normalizedPath = href.startsWith("/") ? href : `/${href}`;
+      const absolute = href.startsWith("http") ? href : `https://luma.com${normalizedPath}`;
+      const normalized = absolute.split("?")[0].replace(/\/$/, "");
+      if (seenUrls.has(normalized)) return;
+      seenUrls.add(normalized);
+      foundEvents.push({ href: normalized, meetupName: sourceDisplayName });
+    };
+
+    // Direct Luma event pages include JSON-LD with @type Event.
+    let hasJsonLdEvent = false;
+    $('script[type="application/ld+json"]').each((_: any, element: any) => {
+      try {
+        const scriptContent = $(element).html();
+        if (!scriptContent) return;
+        const data = JSON.parse(scriptContent);
+        const entries = Array.isArray(data) ? data : [data];
+        for (const entry of entries) {
+          if (entry?.["@type"] === "Event" && typeof entry.url === "string") {
+            hasJsonLdEvent = true;
+            addEventUrl(entry.url);
+          }
+        }
+      } catch {
+        // Continue if JSON parsing fails
+      }
+    });
+
+    // Luma calendar pages expose events in __NEXT_DATA__. For the AI Collective
+    // source, only include events located in Brevard County.
+    if (!hasJsonLdEvent) {
+      const nextDataRaw = $('#__NEXT_DATA__').html();
+      if (nextDataRaw) {
+        try {
+          const nextData = JSON.parse(nextDataRaw);
+          const initialData = nextData?.props?.pageProps?.initialData;
+          if (initialData?.kind === 'calendar') {
+            const calendarName = initialData?.data?.calendar?.name;
+            if (typeof calendarName === 'string' && calendarName.trim()) {
+              sourceDisplayName = calendarName.trim();
+            }
+
+            const featuredItems = initialData?.data?.featured_items as Array<{ event?: LumaEventItem }> | undefined;
+            if (Array.isArray(featuredItems)) {
+              for (const item of featuredItems) {
+                const event = item?.event;
+                if (!event) continue;
+                if (!isBrevardCountyLumaEvent(event)) continue;
+                if (!event.url) continue;
+                addEventUrl(event.url);
+              }
+            }
+          }
+        } catch {
+          // Continue to fallback extraction if parsing fails.
+        }
+      }
+    }
+
+    // If no JSON-LD event is present, fall back to event-like links.
+    if (!hasJsonLdEvent) {
+      $('a[href*="/evt/"], a[href*="/event/"]').each((_: any, element: any) => {
+        const href = $(element).attr("href");
+        if (href) {
+          addEventUrl(href);
+        }
+      });
+    }
+
+    // As a final fallback, treat the source URL itself as a single event link.
+    if (foundEvents.length === 0) {
+      addEventUrl(sourceUrl);
+    }
+
+    console.error(`Found ${foundEvents.length} unique events for ${sourceUrl}`);
+    return foundEvents;
+  } catch (error) {
+    console.error(`Error extracting events from ${sourceUrl}:`, error);
+    return [];
+  }
+}
+
 /**
  * Extracts all event URLs from a Meetup group page and its /events/ listing
  */
-async function extractAllEvents(groupUrl: string): Promise<{ href: string; meetupName: string; }[]> {
+async function extractAllEvents(groupUrl: string): Promise<SourceEventLink[]> {
+  if (isEventbriteSource(groupUrl)) {
+    return extractEventbriteEvents(groupUrl);
+  }
+
+  if (isLumaSource(groupUrl)) {
+    return extractLumaEvents(groupUrl);
+  }
+
   try {
     const response = await (await fetch(groupUrl)).text();
     const $ = cheerio.load(response);
@@ -106,10 +402,201 @@ async function extractAllEvents(groupUrl: string): Promise<{ href: string; meetu
   }
 }
 
+async function extractEventbriteEventData(
+  url: string,
+  groupUrl: string,
+  fallbackOrganizerName: string,
+): Promise<EventData | null> {
+  try {
+    const html = await (await fetch(url)).text();
+    const $ = cheerio.load(html);
+
+    let eventName = $("title").text().replace(" | Eventbrite", "").trim();
+    let eventDescription: string | null = null;
+    let startDate: string | null = null;
+    let organizerName = fallbackOrganizerName;
+
+    $('script[type="application/ld+json"]').each((_: any, element: any) => {
+      try {
+        const scriptContent = $(element).html();
+        if (!scriptContent) return;
+
+        const data = JSON.parse(scriptContent);
+        const entries = Array.isArray(data) ? data : [data];
+
+        for (const entry of entries) {
+          if (!entry || typeof entry !== "object") continue;
+          const type = entry["@type"];
+          if (type === "Event" || type === "SocialEvent") {
+            if (typeof entry.name === "string" && entry.name.trim()) {
+              eventName = entry.name.trim();
+            }
+            if (typeof entry.description === "string" && entry.description.trim()) {
+              eventDescription = entry.description.trim();
+            }
+            if (typeof entry.startDate === "string" && entry.startDate.trim()) {
+              startDate = entry.startDate.trim();
+            }
+            if (entry.organizer) {
+              if (typeof entry.organizer === "string") {
+                organizerName = entry.organizer;
+              } else if (typeof entry.organizer.name === "string") {
+                organizerName = entry.organizer.name;
+              }
+            }
+          }
+        }
+      } catch {
+        // Continue if JSON parsing fails
+      }
+    });
+
+    if (!eventDescription) {
+      const metaDescription = $('meta[name="description"]').attr("content");
+      eventDescription = metaDescription ? metaDescription.trim() : null;
+    }
+
+    const eventDateObj = startDate ? new Date(startDate) : null;
+    const eventDate = eventDateObj
+      ? eventDateObj.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          timeZone: "America/New_York",
+        })
+      : "";
+    const eventTime = eventDateObj
+      ? eventDateObj.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          timeZone: "America/New_York",
+        })
+      : "";
+
+    return {
+      title: eventName,
+      url,
+      date: eventDate,
+      time: eventTime,
+      group_url: groupUrl,
+      meetup_name: organizerName,
+      description: eventDescription,
+      datetime: startDate,
+      isRecurring: false,
+      recurrenceDescription: null,
+    };
+  } catch (error) {
+    console.error(`Error extracting Eventbrite event data from ${url}:`, error);
+    return null;
+  }
+}
+
+async function extractLumaEventData(
+  url: string,
+  groupUrl: string,
+  fallbackName: string,
+): Promise<EventData | null> {
+  try {
+    const html = await (await fetch(url)).text();
+    const $ = cheerio.load(html);
+
+    let eventName = $("title").text().replace(" · Luma", "").trim() || fallbackName;
+    let eventDescription: string | null = null;
+    let startDate: string | null = null;
+    let organizerName = fallbackName;
+
+    $('script[type="application/ld+json"]').each((_: any, element: any) => {
+      try {
+        const scriptContent = $(element).html();
+        if (!scriptContent) return;
+
+        const data = JSON.parse(scriptContent);
+        const entries = Array.isArray(data) ? data : [data];
+
+        for (const entry of entries) {
+          if (!entry || typeof entry !== "object" || entry["@type"] !== "Event") {
+            continue;
+          }
+
+          if (typeof entry.name === "string" && entry.name.trim()) {
+            eventName = entry.name.trim();
+          }
+          if (typeof entry.description === "string" && entry.description.trim()) {
+            eventDescription = entry.description.trim();
+          }
+          if (typeof entry.startDate === "string" && entry.startDate.trim()) {
+            startDate = entry.startDate.trim();
+          }
+          if (entry.organizer) {
+            if (Array.isArray(entry.organizer)) {
+              const firstNamed = entry.organizer.find((organizer: any) => typeof organizer?.name === "string" && organizer.name.trim());
+              if (firstNamed) {
+                organizerName = firstNamed.name.trim();
+              }
+            } else if (typeof entry.organizer === "object" && typeof entry.organizer.name === "string") {
+              organizerName = entry.organizer.name.trim();
+            } else if (typeof entry.organizer === "string") {
+              organizerName = entry.organizer;
+            }
+          }
+        }
+      } catch {
+        // Continue if JSON parsing fails
+      }
+    });
+
+    if (!eventDescription) {
+      const metaDescription = $('meta[name="description"]').attr("content");
+      eventDescription = metaDescription ? metaDescription.trim() : null;
+    }
+
+    const eventDateObj = startDate ? new Date(startDate) : null;
+    const eventDate = eventDateObj
+      ? eventDateObj.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          timeZone: "America/New_York",
+        })
+      : "";
+    const eventTime = eventDateObj
+      ? eventDateObj.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          timeZone: "America/New_York",
+        })
+      : "";
+
+    return {
+      title: eventName,
+      url,
+      date: eventDate,
+      time: eventTime,
+      group_url: groupUrl,
+      meetup_name: organizerName,
+      description: eventDescription,
+      datetime: startDate,
+      isRecurring: false,
+      recurrenceDescription: null,
+    };
+  } catch (error) {
+    console.error(`Error extracting Luma event data from ${url}:`, error);
+    return null;
+  }
+}
+
 /**
  * Extracts event data from a Meetup event page
  */
 async function extractEventData(url: string, groupUrl: string, meetupName: string): Promise<EventData | null> {
+  if (isEventbriteSource(groupUrl) || isEventbriteSource(url)) {
+    return extractEventbriteEventData(url, groupUrl, meetupName);
+  }
+
+  if (isLumaSource(groupUrl) || isLumaSource(url)) {
+    return extractLumaEventData(url, groupUrl, meetupName);
+  }
+
   try {
     const response = await (await fetch(url)).text();
     const $ = cheerio.load(response);
@@ -350,7 +837,7 @@ function expandRecurringDates(
 }
 
 /**
- * Returns the list of Meetup groups to monitor
+ * Returns the list of event source pages to monitor
  */
 function getMeetupGroupList(): string[] {
   return [
@@ -359,6 +846,9 @@ function getMeetupGroupList(): string[] {
     "https://www.meetup.com/melbourne-makerspace-florida-usa/",
     "https://www.meetup.com/melbourne-rhug",
     "https://www.meetup.com/startupspacecoast/",
+    "https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203",
+    "https://www.eventbrite.com/o/protoworkstudio-76945735013",
+    "https://luma.com/genai-collective",
   ];
 }
 /**

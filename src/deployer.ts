@@ -71,7 +71,7 @@ export class EventsDeployer {
    * Extracts events for a specific month
    */
   async extractEventsForMonth(month?: string): Promise<EventData[]> {
-    console.log('Extracting events from Meetup groups...');
+    console.log('Extracting events from configured event sources...');
     
     const groupLinks = getMeetupGroupList();
     const eventData: EventData[] = [];
@@ -237,7 +237,7 @@ This PR contains an automated update of the Space Coast tech events markdown fil
 ${groupSummary}
 
 ### 🔄 Changes
-- Updated event listings from Meetup groups
+- Updated event listings from configured event sources
 - Events filtered for ${monthDisplay}
 - Markdown formatted for Astro site integration
 - Sorted chronologically by event date
@@ -248,6 +248,9 @@ ${groupSummary}
 - [Melbourne Makerspace](https://www.meetup.com/melbourne-makerspace-florida-usa/)
 - [Melbourne R/H User Group](https://www.meetup.com/melbourne-rhug)
 - [Startup Space Coast](https://www.meetup.com/startupspacecoast/)
+- [ISC2 Florida SpaceCoast Chapter](https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203)
+- [ProtoWorkStudio](https://www.eventbrite.com/o/protoworkstudio-76945735013)
+- [The AI Collective (Luma Calendar)](https://luma.com/genai-collective)
 
 *This PR was created automatically by the evnt-hndlr tool. Please review the content before merging.*
     `.trim();

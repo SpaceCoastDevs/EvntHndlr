@@ -1,10 +1,10 @@
 # EvntHndlr
 
-A TypeScript application that automatically scrapes tech event data from Meetup.com groups, formats them as markdown, and optionally deploys them to an Astro blog repository via GitHub pull requests.
+A TypeScript application that automatically scrapes tech event data from Meetup.com groups, Eventbrite organizers, and Luma event pages, formats them as markdown, and optionally deploys them to an Astro blog repository via GitHub pull requests.
 
 ## Features
 
-- 🔍 **Automated Event Scraping**: Extracts event information from configured Meetup.com groups
+- 🔍 **Automated Event Scraping**: Extracts event information from configured event sources (Meetup + Eventbrite + Luma)
 - 📝 **Markdown Formatting**: Converts event details (title, date, time, description) into clean markdown
 - 🔄 **Git Integration**: Automatically creates branches, commits, and pull requests to deploy events
 - 📅 **Month Filtering**: Generate event lists for specific months or the current month
@@ -53,12 +53,14 @@ A TypeScript application that automatically scrapes tech event data from Meetup.
 
 ### 1. Event Extraction
 
-The application scrapes Meetup.com groups defined in `src/main.ts`:
+The application scrapes source URLs defined in `src/main.ts`:
 
 ```typescript
-// Meetup groups are configured in the getMeetupGroupList() function
-const groupLinks = [
+// Event sources are configured in the getMeetupGroupList() function
+const sourceLinks = [
   'https://www.meetup.com/your-group-name/',
+  'https://www.eventbrite.com/o/your-organizer-id',
+  'https://luma.com/your-calendar-slug',
   // Add more groups here
 ];
 ```
@@ -202,7 +204,7 @@ EvntHndlr/
 
 ## Configuration
 
-### Adding Meetup Groups
+### Adding Event Sources
 
 Edit `src/main.ts` and update the `getMeetupGroupList()` function:
 
@@ -210,11 +212,15 @@ Edit `src/main.ts` and update the `getMeetupGroupList()` function:
 function getMeetupGroupList(): string[] {
   return [
     'https://www.meetup.com/your-group-1/',
+    'https://www.eventbrite.com/o/your-organizer-id',
+    'https://luma.com/your-calendar-slug',
     'https://www.meetup.com/your-group-2/',
     // Add more groups here
   ];
 }
 ```
+
+For the configured Luma source (`https://luma.com/genai-collective`), the extractor keeps only Brevard County events.
 
 ### Customizing Output Format
 
