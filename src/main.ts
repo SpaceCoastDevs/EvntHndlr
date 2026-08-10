@@ -99,6 +99,18 @@ function normalizeEventbriteStartDate(
   return `${startDate}T${String(hour).padStart(2, "0")}:${minute}:00${getEasternOffset(startDate)}`;
 }
 
+function normalizeEventEndDate(endDate: string | null): string | null {
+  if (!endDate) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return endDate;
+
+  // Schema.org uses a date-only endDate for all-day events. Calendar end
+  // times are exclusive, so represent that as midnight on the following day.
+  const nextDay = new Date(`${endDate}T00:00:00Z`);
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const normalizedDate = nextDay.toISOString().slice(0, 10);
+  return `${normalizedDate}T00:00:00${getEasternOffset(normalizedDate)}`;
+}
+
 function getSourceImageUrl(image: unknown): string | null {
   const value = Array.isArray(image) ? image[0] : image;
   const url =
@@ -650,6 +662,7 @@ async function extractEventbriteEventData(
     startDate = startDate
       ? normalizeEventbriteStartDate(startDate, eventName)
       : null;
+    endDate = normalizeEventEndDate(endDate);
     const eventDateObj = startDate ? new Date(startDate) : null;
     const eventDate = eventDateObj
       ? eventDateObj.toLocaleDateString("en-US", {
@@ -769,6 +782,8 @@ async function extractLumaEventData(
       eventDescription = metaDescription ? metaDescription.trim() : null;
     }
 
+    endDate = normalizeEventEndDate(endDate);
+
     const eventDateObj = startDate ? new Date(startDate) : null;
     const eventDate = eventDateObj
       ? eventDateObj.toLocaleDateString("en-US", {
@@ -875,6 +890,7 @@ async function extractEventData(
     });
 
     const eventDatetime = startDate;
+    endDate = normalizeEventEndDate(endDate);
     const eventDateObj = startDate ? new Date(startDate) : null;
     const eventDate = eventDateObj
       ? eventDateObj.toLocaleDateString("en-US", {
