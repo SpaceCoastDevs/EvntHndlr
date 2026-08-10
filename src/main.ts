@@ -580,6 +580,7 @@ async function extractEventbriteEventData(
     let imageUrl: string | null = null;
     let cost: EventCost | null = null;
     let startDate: string | null = null;
+    let endDate: string | null = null;
     let organizerName = fallbackOrganizerName;
     let isBrevardCountyLocation = !requireBrevardCountyLocation;
 
@@ -610,6 +611,9 @@ async function extractEventbriteEventData(
             }
             if (typeof entry.startDate === "string" && entry.startDate.trim()) {
               startDate = entry.startDate.trim();
+            }
+            if (typeof entry.endDate === "string" && entry.endDate.trim()) {
+              endDate = entry.endDate.trim();
             }
             imageUrl = getSourceImageUrl(entry.image) || imageUrl;
             cost = getEventCost(entry.offers) || cost;
@@ -674,6 +678,7 @@ async function extractEventbriteEventData(
       imageUrl,
       cost,
       datetime: startDate,
+      endDatetime: endDate,
       isRecurring: false,
       recurrenceDescription: null,
     };
@@ -698,6 +703,7 @@ async function extractLumaEventData(
     let imageUrl: string | null = null;
     let cost: EventCost | null = null;
     let startDate: string | null = null;
+    let endDate: string | null = null;
     let organizerName = fallbackName;
 
     $('script[type="application/ld+json"]').each((_: any, element: any) => {
@@ -728,6 +734,9 @@ async function extractLumaEventData(
           }
           if (typeof entry.startDate === "string" && entry.startDate.trim()) {
             startDate = entry.startDate.trim();
+          }
+          if (typeof entry.endDate === "string" && entry.endDate.trim()) {
+            endDate = entry.endDate.trim();
           }
           imageUrl = getSourceImageUrl(entry.image) || imageUrl;
           cost = getEventCost(entry.offers) || cost;
@@ -788,6 +797,7 @@ async function extractLumaEventData(
       imageUrl,
       cost,
       datetime: startDate,
+      endDatetime: endDate,
       isRecurring: false,
       recurrenceDescription: null,
     };
@@ -829,8 +839,9 @@ async function extractEventData(
     let eventName = $("title").text();
     eventName = eventName.replace(" | Meetup", "").trim();
 
-    // Extract startDate from JSON-LD script tags
+    // Extract event times from JSON-LD script tags
     let startDate: string | null = null;
+    let endDate: string | null = null;
     let imageUrl = getSourceImageUrl(
       $('meta[property="og:image"]').attr("content"),
     );
@@ -845,6 +856,7 @@ async function extractEventData(
             for (const item of data) {
               if (typeof item === "object" && item.startDate) {
                 startDate = item.startDate;
+                endDate = typeof item.endDate === "string" ? item.endDate : null;
                 imageUrl = imageUrl || getSourceImageUrl(item.image);
                 cost = cost || getEventCost(item.offers);
                 break;
@@ -852,6 +864,7 @@ async function extractEventData(
             }
           } else if (typeof data === "object" && data.startDate) {
             startDate = data.startDate;
+            endDate = typeof data.endDate === "string" ? data.endDate : null;
             imageUrl = imageUrl || getSourceImageUrl(data.image);
             cost = cost || getEventCost(data.offers);
           }
@@ -947,6 +960,7 @@ async function extractEventData(
       imageUrl,
       cost,
       datetime: eventDatetime,
+      endDatetime: endDate,
       isRecurring,
       recurrenceDescription,
     };
@@ -1015,6 +1029,11 @@ function expandRecurringDates(
   // Date#getHours() depends on the runner timezone (UTC in Actions) and
   // shifts recurring occurrences when their Eastern offset is reapplied.
   const originalDate = new Date(event.datetime);
+  const originalEndDate = event.endDatetime ? new Date(event.endDatetime) : null;
+  const durationMs =
+    originalEndDate && !Number.isNaN(originalEndDate.valueOf()) && originalEndDate > originalDate
+      ? originalEndDate.valueOf() - originalDate.valueOf()
+      : null;
   const originalYear = Number(getEasternPart(originalDate, "year"));
   const originalMonth = Number(getEasternPart(originalDate, "month"));
   const originalDay = Number(getEasternPart(originalDate, "day"));
@@ -1027,6 +1046,7 @@ function expandRecurringDates(
 
   // Helper to build an occurrence EventData for a given day
   const buildOccurrence = (day: number, isFirst: boolean): EventData => {
+    const { endDatetime: _, ...eventWithoutEnd } = event;
     const candidate = new Date(Date.UTC(filterYear, filterMonth - 1, day));
     const monthStr = String(filterMonth).padStart(2, "0");
     const dayStr = String(day).padStart(2, "0");
@@ -1044,8 +1064,9 @@ function expandRecurringDates(
       timeZone: "America/New_York",
     });
     return {
-      ...event,
+      ...eventWithoutEnd,
       datetime: occDatetime,
+      ...(durationMs ? { endDatetime: new Date(new Date(occDatetime).valueOf() + durationMs).toISOString() } : {}),
       date: occDate,
       time: occTime,
       url: isFirst ? event.url : event.group_url + "events/",

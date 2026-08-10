@@ -16,6 +16,7 @@ export interface EventData {
   imageUrl?: string | null;
   cost?: EventCost | null;
   datetime: string | null;
+  endDatetime?: string | null;
   isRecurring: boolean;
   recurrenceDescription: string | null;
 }
@@ -36,6 +37,7 @@ export interface RecurringEventGroup {
 
 export interface JsonLdEvent {
   startDate?: string;
+  endDate?: string;
   [key: string]: any;
 }
 

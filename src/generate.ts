@@ -14,6 +14,7 @@ interface GeneratedEventRecord {
   slug: string;
   title: string;
   start: string;
+  end?: string;
   attendanceMode: "inPerson";
   organizer: { name: string; url: string };
   sourceUrl: string;
@@ -61,6 +62,7 @@ const toEventRecord = (event: EventData): GeneratedEventRecord | null => {
     slug: slugify(event.title),
     title: event.title,
     start: event.datetime,
+    ...(event.endDatetime ? { end: event.endDatetime } : {}),
     attendanceMode: "inPerson",
     organizer: { name: event.meetup_name, url: event.group_url },
     sourceUrl: event.url,
