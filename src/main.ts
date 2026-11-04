@@ -912,6 +912,7 @@ async function extractEventData(
     let isRecurring = false;
     let recurrenceDescription: string | null = null;
     let cleanTitle: string | null = null;
+    let structuredDescription: string | null = null;
 
     const nextDataScript = $("#__NEXT_DATA__");
     if (nextDataScript.length > 0) {
@@ -922,6 +923,9 @@ async function extractEventData(
           const eventData = nextData?.props?.pageProps?.event;
           if (eventData?.title) {
             cleanTitle = eventData.title;
+          }
+          if (typeof eventData?.description === "string") {
+            structuredDescription = eventData.description.trim();
           }
           if (eventData?.series?.description) {
             isRecurring = true;
@@ -954,9 +958,9 @@ async function extractEventData(
 
     // Get description of the event
     const eventDescriptionElement = $(".break-words");
-    let eventDescription: string | null = null;
+    let eventDescription: string | null = structuredDescription;
 
-    if (eventDescriptionElement.length > 0) {
+    if (!eventDescription && eventDescriptionElement.length > 0) {
       const htmlDescription = eventDescriptionElement.html();
       if (htmlDescription) {
         eventDescription = turndownService.turndown(htmlDescription);
@@ -1460,22 +1464,11 @@ function filterEventsByMonth(
     filterYear = currentYear;
   }
 
-  // Expand recurring events into all occurrences within the target month
-  const expandedEvents: EventData[] = [];
-  for (const event of events) {
-    if (event.isRecurring && event.recurrenceDescription) {
-      const expanded = expandRecurringDates(event, filterMonth, filterYear);
-      expandedEvents.push(...expanded);
-    } else {
-      expandedEvents.push(event);
-    }
-  }
-
-  console.error(
-    `Expanded ${events.length} events to ${expandedEvents.length} (after recurring expansion)`,
-  );
-
-  return expandedEvents.filter((event) => {
+  // Only publish occurrences that Meetup exposes as individual event pages.
+  // Expanding a recurring series creates speculative events with a generic
+  // group /events/ URL, which can become stale when organizers customize the
+  // actual occurrence later.
+  return events.filter((event) => {
     if (!event.datetime) return false;
 
     const eventDate = new Date(event.datetime);
