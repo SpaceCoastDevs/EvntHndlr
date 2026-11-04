@@ -91,6 +91,58 @@ async function writeEventRecords(
     }),
   );
 
+  const desiredPathsBySourceAndDate = new Map(
+    Array.from(uniqueRecords.entries()).map(([relativePath, record]) => [
+      `${record.sourceUrl}|||${record.start.slice(0, 10)}`,
+      `${relativePath}.json`,
+    ]),
+  );
+
+  const removeStaleRecords = async (directory: string): Promise<void> => {
+    let entries: import("fs").Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error: any) {
+      if (error?.code === "ENOENT") return;
+      throw error;
+    }
+
+    await Promise.all(
+      entries.map(async (entry) => {
+        const entryPath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          await removeStaleRecords(entryPath);
+          return;
+        }
+        if (!entry.isFile() || !entry.name.endsWith(".json")) return;
+
+        let existing: GeneratedEventRecord;
+        try {
+          existing = JSON.parse(await fs.readFile(entryPath, "utf8"));
+        } catch {
+          return;
+        }
+
+        const relativePath = path.relative(eventsDirectory, entryPath);
+        const desiredPath = desiredPathsBySourceAndDate.get(
+          `${existing.sourceUrl}|||${existing.start.slice(0, 10)}`,
+        );
+        const isGenericMeetupPage =
+          /^https:\/\/www\.meetup\.com\/[^/]+\/events\/?$/.test(
+            existing.sourceUrl,
+          );
+        const isSuperseded = desiredPath && desiredPath !== relativePath;
+
+        if (isGenericMeetupPage || isSuperseded) {
+          await fs.unlink(entryPath);
+          console.log(`Removed stale event record ${entryPath}`);
+        }
+      }),
+    );
+  };
+
+  await removeStaleRecords(eventsDirectory);
+
   await Promise.all(
     Array.from(uniqueRecords.entries()).map(async ([relativePath, record]) => {
       const outputFile = path.join(eventsDirectory, `${relativePath}.json`);
