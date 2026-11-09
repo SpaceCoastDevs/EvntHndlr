@@ -861,6 +861,7 @@ async function extractEventData(
       $('meta[property="og:image"]').attr("content"),
     );
     let cost: EventCost | null = null;
+    let attendanceMode: EventData["attendanceMode"] = "inPerson";
     $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
         const scriptContent = $(element).html();
@@ -874,6 +875,13 @@ async function extractEventData(
                 endDate = typeof item.endDate === "string" ? item.endDate : null;
                 imageUrl = imageUrl || getSourceImageUrl(item.image);
                 cost = cost || getEventCost(item.offers);
+                if (typeof item.eventAttendanceMode === "string") {
+                  attendanceMode = item.eventAttendanceMode.includes("OnlineEventAttendanceMode")
+                    ? "online"
+                    : item.eventAttendanceMode.includes("MixedEventAttendanceMode")
+                      ? "mixed"
+                      : "inPerson";
+                }
                 break;
               }
             }
@@ -882,6 +890,13 @@ async function extractEventData(
             endDate = typeof data.endDate === "string" ? data.endDate : null;
             imageUrl = imageUrl || getSourceImageUrl(data.image);
             cost = cost || getEventCost(data.offers);
+            if (typeof data.eventAttendanceMode === "string") {
+              attendanceMode = data.eventAttendanceMode.includes("OnlineEventAttendanceMode")
+                ? "online"
+                : data.eventAttendanceMode.includes("MixedEventAttendanceMode")
+                  ? "mixed"
+                  : "inPerson";
+            }
           }
         }
       } catch (e) {
@@ -981,6 +996,7 @@ async function extractEventData(
       cost,
       datetime: eventDatetime,
       endDatetime: endDate,
+      attendanceMode,
       isRecurring,
       recurrenceDescription,
     };
@@ -1189,6 +1205,7 @@ function getMeetupGroupList(): string[] {
     "https://www.meetup.com/hack-the-box-meetup-melbourne-fl-us/",
     "https://www.meetup.com/melbourne-makerspace-florida-usa/",
     "https://www.meetup.com/melbourne-rhug",
+    "https://www.meetup.com/melbourne-sci-fi-live-action-role-play-larp-meetup-group/",
     "https://www.meetup.com/startupspacecoast/",
     "https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203",
     "https://www.eventbrite.com/o/protoworkstudio-76945735013",

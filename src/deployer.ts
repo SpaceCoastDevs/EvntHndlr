@@ -247,6 +247,7 @@ ${groupSummary}
 - [Space Coast Security](https://www.meetup.com/spacecoastsec)
 - [Melbourne Makerspace](https://www.meetup.com/melbourne-makerspace-florida-usa/)
 - [Melbourne R/H User Group](https://www.meetup.com/melbourne-rhug)
+- [Xelseor Mission Protocol Sim Crew Meetups](https://www.meetup.com/melbourne-sci-fi-live-action-role-play-larp-meetup-group/)
 - [Startup Space Coast](https://www.meetup.com/startupspacecoast/)
 - [ISC2 Florida SpaceCoast Chapter](https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203)
 - [ProtoWorkStudio](https://www.eventbrite.com/o/protoworkstudio-76945735013)
