@@ -16,7 +16,7 @@ interface GeneratedEventRecord {
   title: string;
   start: string;
   end?: string;
-  attendanceMode: "inPerson";
+  attendanceMode: "inPerson" | "online" | "mixed";
   organizer: { name: string; url: string };
   sourceUrl: string;
   sourceIdentity: SourceIdentity;
@@ -69,7 +69,7 @@ const toEventRecord = (event: EventData): GeneratedEventRecord | null => {
     title: event.title,
     start: event.datetime,
     ...(event.endDatetime ? { end: event.endDatetime } : {}),
-    attendanceMode: "inPerson",
+    attendanceMode: event.attendanceMode || "inPerson",
     organizer: { name: event.meetup_name, url: event.group_url },
     sourceUrl: event.url,
     description: event.description || "",

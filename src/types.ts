@@ -17,6 +17,7 @@ export interface EventData {
   cost?: EventCost | null;
   datetime: string | null;
   endDatetime?: string | null;
+  attendanceMode?: "inPerson" | "online" | "mixed";
   isRecurring: boolean;
   recurrenceDescription: string | null;
 }

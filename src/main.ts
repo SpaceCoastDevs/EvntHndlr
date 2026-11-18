@@ -889,6 +889,14 @@ async function extractEventData(
     endDate = typeof selectedEvent.endDate === "string" ? selectedEvent.endDate : null;
     imageUrl = imageUrl || getSourceImageUrl(selectedEvent.image);
     cost = getEventCost(selectedEvent.offers);
+    const attendanceMode: EventData["attendanceMode"] =
+      typeof selectedEvent.eventAttendanceMode === "string" &&
+      selectedEvent.eventAttendanceMode.includes("OnlineEventAttendanceMode")
+        ? "online"
+        : typeof selectedEvent.eventAttendanceMode === "string" &&
+            selectedEvent.eventAttendanceMode.includes("MixedEventAttendanceMode")
+          ? "mixed"
+          : "inPerson";
 
     const eventDatetime = startDate;
     endDate = normalizeEventEndDate(endDate);
@@ -987,6 +995,7 @@ async function extractEventData(
       cost,
       datetime: eventDatetime,
       endDatetime: endDate,
+      attendanceMode,
       isRecurring,
       recurrenceDescription,
     };
@@ -1196,6 +1205,7 @@ function getMeetupGroupList(): string[] {
     "https://www.meetup.com/hack-the-box-meetup-melbourne-fl-us/",
     "https://www.meetup.com/melbourne-makerspace-florida-usa/",
     "https://www.meetup.com/melbourne-rhug",
+    "https://www.meetup.com/melbourne-sci-fi-live-action-role-play-larp-meetup-group/",
     "https://www.meetup.com/startupspacecoast/",
     "https://www.eventbrite.com/o/isc2-florida-spacecoast-chapter-72982354203",
     "https://www.eventbrite.com/o/protoworkstudio-76945735013",
