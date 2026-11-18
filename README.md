@@ -293,3 +293,36 @@ Maintained by SpaceCoastDevs
 ## Additional Documentation
 
 - [Git Integration Guide](docs/git-integration.md) - Detailed documentation on Git deployment features
+
+## Durable event identities and safe refreshes
+
+Generated event JSON now includes `sourceIdentity: { provider, id }`. Supported
+providers are `meetup`, `eventbrite`, and `luma`; IDs come from the individual
+provider occurrence URL, never a title or scheduled date. The URL remains the
+RSVP link. A consumer can use the provider/ID pair for stable calendar UIDs.
+
+The exporter preflights the whole batch before writing. It rejects conflicting
+snapshots for one occurrence, different IDs competing for a title/date filename,
+unrelated occupied destinations, and ambiguous historical records that share a
+provider ID. Such errors leave existing files untouched: review the conflicting
+records against their source rather than deleting or merging them automatically.
+Missing events in a partial scrape are not deletions, and generic/manual records
+are not purged merely because their URL lacks an event ID.
+
+An unambiguous title/date change keeps the provider identity and moves the JSON
+file, removing only the matched old path after the replacement is written. Local
+unknown fields (including an existing `calendarId`) and local image paths survive
+refreshes. Separately maintained maps keyed by content filenames must move their
+keys when a record is renamed, retaining their immutable values; this exporter
+does not edit downstream maps. Provider IDs changing cannot automatically be
+inferred to be the same event and require manual reconciliation.
+
+Meetup extraction selects JSON-LD for the requested occurrence, not the first
+related event on the page. A single anonymous event is accepted when unambiguous;
+explicit mismatches or ambiguous metadata are skipped. Recurrence expansion is
+not used by the production month filter. Its legacy helper no longer assigns
+the original event URL to a different month's projected occurrence.
+
+Run `npm test` for the TypeScript build and offline identity/extraction/export
+regressions. Tests use temporary directories and mocked HTML; they do not scrape,
+publish, or change RSVP platforms. CI runs these checks on Node 20 and 22.
