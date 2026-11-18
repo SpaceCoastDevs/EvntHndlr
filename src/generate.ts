@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { getSourceIdentity, sourceIdentityKey, SourceIdentity } from "./event-identity";
 import {
   extractAllEvents,
   extractEventData,
@@ -18,6 +19,7 @@ interface GeneratedEventRecord {
   attendanceMode: "inPerson" | "online" | "mixed";
   organizer: { name: string; url: string };
   sourceUrl: string;
+  sourceIdentity: SourceIdentity;
   description: string;
   imageUrl?: string;
   cost?: EventCost;
@@ -58,7 +60,11 @@ const toEventRecord = (event: EventData): GeneratedEventRecord | null => {
   const start = new Date(event.datetime);
   if (Number.isNaN(start.getTime())) return null;
 
+  const sourceIdentity = getSourceIdentity(event.url);
+  if (!sourceIdentity) throw new Error(`Cannot export event without a provider occurrence ID: ${event.url}`);
+
   return {
+    sourceIdentity,
     slug: slugify(event.title),
     title: event.title,
     start: event.datetime,
@@ -73,89 +79,83 @@ const toEventRecord = (event: EventData): GeneratedEventRecord | null => {
   };
 };
 
-async function writeEventRecords(
+export async function writeEventRecords(
   events: EventData[],
   eventsDirectory: string,
 ): Promise<number> {
-  const records = events
-    .map(toEventRecord)
-    .filter((record): record is GeneratedEventRecord => record !== null)
-    .sort((a, b) => a.start.localeCompare(b.start));
-  const uniqueRecords = new Map(
-    records.map((record) => {
-      const filename = `${getEasternDate(new Date(record.start))}-${slugify(record.title)}`;
-      return [
-        `${getGroupDirectory(record.organizer.name)}/${filename}`,
-        record,
-      ];
-    }),
-  );
-
-  const desiredPathsBySourceAndDate = new Map(
-    Array.from(uniqueRecords.entries()).map(([relativePath, record]) => [
-      `${record.sourceUrl}|||${record.start.slice(0, 10)}`,
-      `${relativePath}.json`,
-    ]),
-  );
-
-  const removeStaleRecords = async (directory: string): Promise<void> => {
-    let entries: import("fs").Dirent[];
-    try {
-      entries = await fs.readdir(directory, { withFileTypes: true });
-    } catch (error: any) {
-      if (error?.code === "ENOENT") return;
-      throw error;
+  const records = events.map(toEventRecord).filter((record): record is GeneratedEventRecord => record !== null);
+  const byIdentity = new Map<string, GeneratedEventRecord>();
+  const byPath = new Map<string, string>();
+  const outputPath = (record: GeneratedEventRecord) =>
+    `${getGroupDirectory(record.organizer.name)}/${getEasternDate(new Date(record.start))}-${slugify(record.title)}.json`;
+  // Preflight the entire batch before changing any files. Same title/date is not identity.
+  for (const record of records) {
+    const key = sourceIdentityKey(record.sourceIdentity);
+    const previous = byIdentity.get(key);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(record)) {
+      throw new Error(`Conflicting snapshots for provider occurrence ${key}`);
     }
+    const filename = outputPath(record);
+    const pathOwner = byPath.get(filename);
+    if (pathOwner && pathOwner !== key) throw new Error(`Distinct occurrences would overwrite ${filename}`);
+    byIdentity.set(key, record);
+    byPath.set(filename, key);
+  }
 
-    await Promise.all(
-      entries.map(async (entry) => {
-        const entryPath = path.join(directory, entry.name);
-        if (entry.isDirectory()) {
-          await removeStaleRecords(entryPath);
-          return;
-        }
-        if (!entry.isFile() || !entry.name.endsWith(".json")) return;
-
-        let existing: GeneratedEventRecord;
-        try {
-          existing = JSON.parse(await fs.readFile(entryPath, "utf8"));
-        } catch {
-          return;
-        }
-
-        const relativePath = path.relative(eventsDirectory, entryPath);
-        const desiredPath = desiredPathsBySourceAndDate.get(
-          `${existing.sourceUrl}|||${existing.start.slice(0, 10)}`,
-        );
-        const isGenericMeetupPage =
-          /^https:\/\/www\.meetup\.com\/[^/]+\/events\/?$/.test(
-            existing.sourceUrl,
-          );
-        const isSuperseded = desiredPath && desiredPath !== relativePath;
-
-        if (isGenericMeetupPage || isSuperseded) {
-          await fs.unlink(entryPath);
-          console.log(`Removed stale event record ${entryPath}`);
-        }
-      }),
-    );
+  const existingFiles = new Map<string, Record<string, any>>();
+  const existingByIdentity = new Map<string, string[]>();
+  const scan = async (directory: string): Promise<void> => {
+    let entries: import("fs").Dirent[];
+    try { entries = await fs.readdir(directory, { withFileTypes: true }); }
+    catch (error: any) { if (error?.code === "ENOENT") return; throw error; }
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) { await scan(fullPath); continue; }
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      const relativePath = path.relative(eventsDirectory, fullPath);
+      let existing: Record<string, any>;
+      try { existing = JSON.parse(await fs.readFile(fullPath, "utf8")); }
+      catch { throw new Error(`Cannot safely reconcile unreadable event record ${relativePath}`); }
+      existingFiles.set(relativePath, existing);
+      let identity: SourceIdentity | null = null;
+      try { identity = getSourceIdentity(existing.sourceUrl); } catch { /* Preserve manual records. */ }
+      if (!identity) continue;
+      const key = sourceIdentityKey(identity);
+      if (!byIdentity.has(key)) continue;
+      if (existing.sourceIdentity && sourceIdentityKey(existing.sourceIdentity) !== key) {
+        throw new Error(`Source metadata disagrees with URL in ${relativePath}`);
+      }
+      existingByIdentity.set(key, [...(existingByIdentity.get(key) || []), relativePath]);
+    }
   };
+  await scan(eventsDirectory);
 
-  await removeStaleRecords(eventsDirectory);
-
-  await Promise.all(
-    Array.from(uniqueRecords.entries()).map(async ([relativePath, record]) => {
-      const outputFile = path.join(eventsDirectory, `${relativePath}.json`);
-      await fs.mkdir(path.dirname(outputFile), { recursive: true });
-      await fs.writeFile(
-        outputFile,
-        `${JSON.stringify(record, null, 2)}\n`,
-        "utf8",
-      );
-    }),
-  );
-
-  return uniqueRecords.size;
+  const plan: Array<{ relativePath: string; oldPath?: string; record: Record<string, any> }> = [];
+  for (const [key, record] of byIdentity) {
+    const matches = existingByIdentity.get(key) || [];
+    // Legacy reused URLs may describe different real events. Never guess which to replace.
+    if (matches.length > 1) throw new Error(`Ambiguous existing provider occurrence ${key}: ${matches.join(", ")}`);
+    const relativePath = outputPath(record);
+    const oldPath = matches[0];
+    if (existingFiles.has(relativePath) && relativePath !== oldPath) {
+      throw new Error(`Refusing to overwrite an unrelated event at ${relativePath}`);
+    }
+    const existing = oldPath ? existingFiles.get(oldPath)! : {};
+    plan.push({ relativePath, oldPath, record: {
+      ...existing,
+      ...record,
+      // Preserve locally cached/curated images and unknown manual fields, including calendarId.
+      ...(typeof existing.imageUrl === "string" && existing.imageUrl.startsWith("/") ? { imageUrl: existing.imageUrl } : {}),
+    } });
+  }
+  for (const { relativePath, oldPath, record } of plan) {
+    const outputFile = path.join(eventsDirectory, relativePath);
+    await fs.mkdir(path.dirname(outputFile), { recursive: true });
+    await fs.writeFile(outputFile, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    // Remove only the unambiguously matched old path, and only after its replacement exists.
+    if (oldPath && oldPath !== relativePath) await fs.unlink(path.join(eventsDirectory, oldPath));
+  }
+  return plan.length;
 }
 
 function generatePostFilename(month?: string): string {

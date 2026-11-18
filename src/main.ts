@@ -1,3 +1,4 @@
+import { getSourceIdentity, selectMeetupEvent } from "./event-identity";
 import * as cheerio from "cheerio";
 import TurndownService from "turndown";
 import {
@@ -845,7 +846,16 @@ async function extractEventData(
   }
 
   try {
-    const response = await (await fetch(url)).text();
+    const fetched = await fetch(url);
+    if (fetched.url) {
+      const requested = getSourceIdentity(url);
+      const resolved = getSourceIdentity(fetched.url);
+      if (!requested || !resolved || requested.provider !== resolved.provider || requested.id !== resolved.id) {
+        console.error(`Skipping redirected Meetup page for a different occurrence: ${url}`);
+        return null;
+      }
+    }
+    const response = await fetched.text();
     const $ = cheerio.load(response);
 
     console.error(`Processing event: ${url} for group: ${meetupName}`);
@@ -861,48 +871,32 @@ async function extractEventData(
       $('meta[property="og:image"]').attr("content"),
     );
     let cost: EventCost | null = null;
-    let attendanceMode: EventData["attendanceMode"] = "inPerson";
+    const structuredEvents: unknown[] = [];
     $('script[type="application/ld+json"]').each((_: any, element: any) => {
       try {
-        const scriptContent = $(element).html();
-        if (scriptContent) {
-          const data = JSON.parse(scriptContent);
-
-          if (Array.isArray(data)) {
-            for (const item of data) {
-              if (typeof item === "object" && item.startDate) {
-                startDate = item.startDate;
-                endDate = typeof item.endDate === "string" ? item.endDate : null;
-                imageUrl = imageUrl || getSourceImageUrl(item.image);
-                cost = cost || getEventCost(item.offers);
-                if (typeof item.eventAttendanceMode === "string") {
-                  attendanceMode = item.eventAttendanceMode.includes("OnlineEventAttendanceMode")
-                    ? "online"
-                    : item.eventAttendanceMode.includes("MixedEventAttendanceMode")
-                      ? "mixed"
-                      : "inPerson";
-                }
-                break;
-              }
-            }
-          } else if (typeof data === "object" && data.startDate) {
-            startDate = data.startDate;
-            endDate = typeof data.endDate === "string" ? data.endDate : null;
-            imageUrl = imageUrl || getSourceImageUrl(data.image);
-            cost = cost || getEventCost(data.offers);
-            if (typeof data.eventAttendanceMode === "string") {
-              attendanceMode = data.eventAttendanceMode.includes("OnlineEventAttendanceMode")
-                ? "online"
-                : data.eventAttendanceMode.includes("MixedEventAttendanceMode")
-                  ? "mixed"
-                  : "inPerson";
-            }
-          }
-        }
-      } catch (e) {
-        // Continue if JSON parsing fails
+        const content = $(element).html();
+        if (content) structuredEvents.push(JSON.parse(content));
+      } catch {
+        // Other metadata scripts need not contain valid event JSON.
       }
     });
+    const selectedEvent = selectMeetupEvent(structuredEvents, url);
+    if (!selectedEvent) {
+      console.error(`Skipping Meetup page without an unambiguous matching occurrence: ${url}`);
+      return null;
+    }
+    startDate = selectedEvent.startDate;
+    endDate = typeof selectedEvent.endDate === "string" ? selectedEvent.endDate : null;
+    imageUrl = imageUrl || getSourceImageUrl(selectedEvent.image);
+    cost = getEventCost(selectedEvent.offers);
+    const attendanceMode: EventData["attendanceMode"] =
+      typeof selectedEvent.eventAttendanceMode === "string" &&
+      selectedEvent.eventAttendanceMode.includes("OnlineEventAttendanceMode")
+        ? "online"
+        : typeof selectedEvent.eventAttendanceMode === "string" &&
+            selectedEvent.eventAttendanceMode.includes("MixedEventAttendanceMode")
+          ? "mixed"
+          : "inPerson";
 
     const eventDatetime = startDate;
     endDate = normalizeEventEndDate(endDate);
@@ -936,6 +930,11 @@ async function extractEventData(
         if (nextDataContent) {
           const nextData = JSON.parse(nextDataContent);
           const eventData = nextData?.props?.pageProps?.event;
+          const requestedId = getSourceIdentity(url)?.id;
+          if (eventData?.id && String(eventData.id) !== requestedId) {
+            console.error(`Skipping Meetup page with mismatched occurrence metadata: ${url}`);
+            return null;
+          }
           if (eventData?.title) {
             cleanTitle = eventData.title;
           }
@@ -1081,7 +1080,7 @@ function expandRecurringDates(
   const monthEnd = new Date(filterYear, filterMonth, 0); // Last day of month
 
   // Helper to build an occurrence EventData for a given day
-  const buildOccurrence = (day: number, isFirst: boolean): EventData => {
+  const buildOccurrence = (day: number): EventData => {
     const { endDatetime: _, ...eventWithoutEnd } = event;
     const candidate = new Date(Date.UTC(filterYear, filterMonth - 1, day));
     const monthStr = String(filterMonth).padStart(2, "0");
@@ -1105,7 +1104,8 @@ function expandRecurringDates(
       ...(durationMs ? { endDatetime: new Date(new Date(occDatetime).valueOf() + durationMs).toISOString() } : {}),
       date: occDate,
       time: occTime,
-      url: isFirst ? event.url : event.group_url + "events/",
+      url: filterYear === originalYear && filterMonth === originalMonth && day === originalDay
+        ? event.url : event.group_url + "events/",
     };
   };
 
@@ -1135,7 +1135,7 @@ function expandRecurringDates(
           );
           if (candidate.getTime() < originalStartOfDay) return [event];
           if (endDate && candidate > endDate) return [event];
-          return [buildOccurrence(day, true)];
+          return [buildOccurrence(day)];
         }
       }
     }
@@ -1189,7 +1189,7 @@ function expandRecurringDates(
     // Check end date
     if (endDate && candidate > endDate) continue;
 
-    occurrences.push(buildOccurrence(day, occurrences.length === 0));
+    occurrences.push(buildOccurrence(day));
   }
 
   return occurrences.length > 0 ? occurrences : [event];
