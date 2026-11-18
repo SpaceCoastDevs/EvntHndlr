@@ -846,7 +846,16 @@ async function extractEventData(
   }
 
   try {
-    const response = await (await fetch(url)).text();
+    const fetched = await fetch(url);
+    if (fetched.url) {
+      const requested = getSourceIdentity(url);
+      const resolved = getSourceIdentity(fetched.url);
+      if (!requested || !resolved || requested.provider !== resolved.provider || requested.id !== resolved.id) {
+        console.error(`Skipping redirected Meetup page for a different occurrence: ${url}`);
+        return null;
+      }
+    }
+    const response = await fetched.text();
     const $ = cheerio.load(response);
 
     console.error(`Processing event: ${url} for group: ${meetupName}`);

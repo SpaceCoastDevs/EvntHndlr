@@ -8,7 +8,7 @@ export function getSourceIdentity(sourceUrl: string): SourceIdentity | null {
   const url = new URL(sourceUrl);
   const host = url.hostname.replace(/^www\./, "");
   const meetupId =
-    host === "meetup.com" && url.pathname.match(/\/events\/([^/]+)/)?.[1];
+    host === "meetup.com" && url.pathname.match(/\/events\/(\d+)(?:\/|$)/)?.[1];
   if (meetupId) return { provider: "meetup", id: meetupId };
   const eventbriteId =
     host === "eventbrite.com" &&
@@ -44,7 +44,7 @@ export function selectMeetupEvent(
   );
   const matches = identified.filter((event) => {
     try {
-      const identity = getSourceIdentity(event.url);
+      const identity = getSourceIdentity(new URL(event.url, requestedUrl).href);
       return (
         identity && sourceIdentityKey(identity) === sourceIdentityKey(requested)
       );

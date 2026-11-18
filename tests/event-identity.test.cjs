@@ -201,21 +201,21 @@ test("reruns are idempotent; reschedule/rename retains provider ID and local met
 
 test("same title/date with different IDs and conflicting same ID input fail before writes", async (t) => {
   const dir = await temp(t);
-  await writeEventRecords([event("old")], dir);
+  await writeEventRecords([event("111")], dir);
   const before = await snapshot(dir);
   await assert.rejects(
-    writeEventRecords([event("a"), event("b")], dir),
+    writeEventRecords([event("333"), event("444")], dir),
     /Distinct occurrences/,
   );
   await assert.rejects(
     writeEventRecords(
-      [event("a"), event("a", { datetime: "2026-12-16T18:00:00-05:00" })],
+      [event("333"), event("333", { datetime: "2026-12-16T18:00:00-05:00" })],
       dir,
     ),
     /Conflicting snapshots/,
   );
   await assert.rejects(
-    writeEventRecords([event("new")], dir),
+    writeEventRecords([event("222")], dir),
     /unrelated event/,
   );
   assert.deepEqual(await snapshot(dir), before);
@@ -239,8 +239,37 @@ test("ambiguous historical reused URLs remain untouched; generic/manual files ar
   );
   const before = await snapshot(dir);
   await assert.rejects(
-    writeEventRecords([event("new", { title: "Unrelated" }), event()], dir),
+    writeEventRecords([event("222", { title: "Unrelated" }), event()], dir),
     /Ambiguous existing/,
   );
   assert.deepEqual(await snapshot(dir), before);
+});
+
+test("relative metadata URLs resolve correctly and foreign redirects cannot use anonymous fallback", async (t) => {
+  assert.deepEqual(
+    selectMeetupEvent(
+      [{ url: "/group/events/123/", startDate: "2026-11-18" }],
+      event().url,
+    ),
+    { url: "/group/events/123/", startDate: "2026-11-18" },
+  );
+  assert.equal(
+    getSourceIdentity("https://www.meetup.com/group/events/upcoming/"),
+    null,
+  );
+  const originalFetch = global.fetch;
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+  global.fetch = async () => {
+    const response = new Response(
+      `<script type="application/ld+json">${JSON.stringify({ startDate: event().datetime })}</script>`,
+    );
+    Object.defineProperty(response, "url", { value: event("999").url });
+    return response;
+  };
+  assert.equal(
+    await extractEventData(event().url, event().group_url, "Group"),
+    null,
+  );
 });
