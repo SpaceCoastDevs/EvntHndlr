@@ -130,13 +130,26 @@ export async function writeEventRecords(
   };
   await scan(eventsDirectory);
 
+  const warnings: string[] = [];
   const plan: Array<{ relativePath: string; oldPath?: string; record: Record<string, any> }> = [];
   for (const [key, record] of byIdentity) {
     const matches = existingByIdentity.get(key) || [];
-    // Legacy reused URLs may describe different real events. Never guess which to replace.
-    if (matches.length > 1) throw new Error(`Ambiguous existing provider occurrence ${key}: ${matches.join(", ")}`);
     const relativePath = outputPath(record);
-    const oldPath = matches[0];
+    // An occupied unrelated target remains an error, even for a legacy duplicate ID.
+    if (existingFiles.has(relativePath) && !matches.includes(relativePath)) {
+      throw new Error(`Refusing to overwrite an unrelated event at ${relativePath}`);
+    }
+    let oldPath = matches[0];
+    if (matches.length > 1) {
+      // Exact path is the only safe refresh target; never infer a rename among siblings.
+      const detail = `Ambiguous existing provider occurrence ${key}: ${matches.join(", ")}`;
+      if (!matches.includes(relativePath)) {
+        warnings.push(`${detail}. Skipped occurrence (no exact target ${relativePath}); all related files preserved. Review source identities manually.`);
+        continue;
+      }
+      oldPath = relativePath;
+      warnings.push(`${detail}. Refreshing exact target ${relativePath} only; siblings preserved. Review source identities manually.`);
+    }
     if (existingFiles.has(relativePath) && relativePath !== oldPath) {
       throw new Error(`Refusing to overwrite an unrelated event at ${relativePath}`);
     }
@@ -148,6 +161,7 @@ export async function writeEventRecords(
       ...(typeof existing.imageUrl === "string" && existing.imageUrl.startsWith("/") ? { imageUrl: existing.imageUrl } : {}),
     } });
   }
+  for (const warning of warnings) console.warn(`[event-export] WARNING: ${warning}`);
   for (const { relativePath, oldPath, record } of plan) {
     const outputFile = path.join(eventsDirectory, relativePath);
     await fs.mkdir(path.dirname(outputFile), { recursive: true });

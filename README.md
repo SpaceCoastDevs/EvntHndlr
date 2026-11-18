@@ -303,9 +303,15 @@ RSVP link. A consumer can use the provider/ID pair for stable calendar UIDs.
 
 The exporter preflights the whole batch before writing. It rejects conflicting
 snapshots for one occurrence, different IDs competing for a title/date filename,
-unrelated occupied destinations, and ambiguous historical records that share a
-provider ID. Such errors leave existing files untouched: review the conflicting
-records against their source rather than deleting or merging them automatically.
+unrelated occupied destinations, unreadable records, and conflicting source metadata.
+Such errors leave existing files untouched. Legacy records sharing a provider ID
+are handled conservatively: an exact target filename with agreeing identity may
+refresh in place, preserving siblings and local fields. Without an exact match,
+only that occurrence is skipped, leaving all its existing files untouched while
+safe independent imports continue. Both cases emit explicit warnings to stderr
+with the provider ID, affected paths, and action taken. Review these warnings and
+reconcile identities against their sources; no sibling is deleted or automatically
+merged. The exported count includes only records actually written.
 Missing events in a partial scrape are not deletions, and generic/manual records
 are not purged merely because their URL lacks an event ID.
 

@@ -221,7 +221,7 @@ test("same title/date with different IDs and conflicting same ID input fail befo
   assert.deepEqual(await snapshot(dir), before);
 });
 
-test("ambiguous historical reused URLs remain untouched; generic/manual files are not purged", async (t) => {
+test("ambiguous historical IDs refresh only exact target and preserve siblings/manual files", async (t) => {
   const dir = await temp(t);
   await writeEventRecords([event()], dir);
   const old = path.join(dir, "group/2026-11-18-monthly-meetup.json");
@@ -238,11 +238,13 @@ test("ambiguous historical reused URLs remain untouched; generic/manual files ar
     }),
   );
   const before = await snapshot(dir);
-  await assert.rejects(
-    writeEventRecords([event("222", { title: "Unrelated" }), event()], dir),
-    /Ambiguous existing/,
-  );
-  assert.deepEqual(await snapshot(dir), before);
+  const warnings = [];
+  t.mock.method(console, "warn", (message) => warnings.push(message));
+  assert.equal(await writeEventRecords([event("222", { title: "Unrelated" }), event()], dir), 2);
+  const after = await snapshot(dir);
+  for (const [name, text] of Object.entries(before)) assert.equal(after[name], text);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /Refreshing exact target.*siblings preserved/);
 });
 
 test("relative metadata URLs resolve correctly and foreign redirects cannot use anonymous fallback", async (t) => {
@@ -272,4 +274,48 @@ test("relative metadata URLs resolve correctly and foreign redirects cannot use 
     await extractEventData(event().url, event().group_url, "Group"),
     null,
   );
+});
+
+
+test("Hack The Box legacy pair refreshes Nov 25, skips ambiguous rename, and co-imports safely", async (t) => {
+  const dir = await temp(t);
+  const ht = event("312455076", {
+    title: "Hack The Box Meetup #17",
+    meetup_name: "Hack The Box Meetup Melbourne FL US",
+    datetime: "2026-11-25T18:30:00-05:00",
+  });
+  await writeEventRecords([ht], dir);
+  const folder = "hack-the-box-meetup-melbourne-fl-us";
+  const current = `${folder}/2026-11-25-hack-the-box-meetup-17.json`;
+  const sibling = `${folder}/2026-11-18-hack-the-box-meetup-17.json`;
+  const record = JSON.parse(await readFile(path.join(dir, current), "utf8"));
+  delete record.sourceIdentity; // Existing site records predate explicit metadata.
+  record.calendarId = "curated-nov25";
+  record.imageUrl = "/event-images/local.png";
+  await writeFile(path.join(dir, current), JSON.stringify(record));
+  await writeFile(path.join(dir, sibling), JSON.stringify({ ...record, start: "2026-11-18T18:30:00-05:00", calendarId: "curated-nov18" }));
+  const before = await snapshot(dir);
+  const warnings = [];
+  t.mock.method(console, "warn", (message) => warnings.push(message));
+  assert.equal(await writeEventRecords([ht, event("222", { title: "Independent" })], dir), 2);
+  let after = await snapshot(dir);
+  assert.equal(after[sibling], before[sibling]);
+  const refreshed = JSON.parse(after[current]);
+  assert.equal(refreshed.calendarId, "curated-nov25");
+  assert.equal(refreshed.imageUrl, "/event-images/local.png");
+  assert.deepEqual(refreshed.sourceIdentity, { provider: "meetup", id: "312455076" });
+  assert.match(warnings[0], /312455076.*Refreshing exact target/);
+  const beforeRename = after;
+  assert.equal(await writeEventRecords([{ ...ht, title: "Renamed ambiguous event" }, event("333", { title: "Another independent" })], dir), 1);
+  after = await snapshot(dir);
+  for (const [name, text] of Object.entries(beforeRename)) assert.equal(after[name], text);
+  assert.equal(Object.keys(after).length, Object.keys(beforeRename).length + 1);
+  assert.match(warnings[1], /Skipped occurrence.*no exact target.*all related files preserved/);
+  // Ambiguity must not mask an unrelated destination or disagreeing metadata.
+  await assert.rejects(writeEventRecords([{ ...ht, title: "Independent", meetup_name: "Group", datetime: event().datetime }], dir), /unrelated event/);
+  const inconsistent = { ...refreshed, sourceIdentity: { provider: "meetup", id: "999" } };
+  await writeFile(path.join(dir, current), JSON.stringify(inconsistent));
+  const beforeFailure = await snapshot(dir);
+  await assert.rejects(writeEventRecords([event("444"), ht], dir), /Source metadata disagrees/);
+  assert.deepEqual(await snapshot(dir), beforeFailure);
 });
